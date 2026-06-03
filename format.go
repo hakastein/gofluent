@@ -10,8 +10,8 @@ import (
 // architectural deviation from fluent.js: instead of depending on the JS
 // `Intl.*` objects (Intl.NumberFormat, Intl.DateTimeFormat, Intl.PluralRules),
 // the Go port exposes interfaces that a caller can wire to a real CLDR
-// implementation (e.g. a separate `fluentx` package built on x/text). The core
-// stays dependency-free.
+// implementation (e.g. the separate `fluentx` package, backed by the module's
+// self-contained cldr packages). The core stays dependency-free.
 //
 // The locale is represented as a plain BCP-47 string and passed to every
 // formatter; no locale library is imported here.

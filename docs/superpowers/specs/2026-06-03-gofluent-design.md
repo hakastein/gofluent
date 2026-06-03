@@ -130,3 +130,28 @@ functions: `NUMBER`, `DATETIME`.
 - Runtime pattern pre-compilation to closures/codegen (variant C) — only if profiling demands it.
 - DOM/React-style bindings.
 - A CLI / linter on top of the syntax package.
+
+## Addendum (2026-06-04): self-contained CLDR instead of x/text
+
+The first cut implemented the formatting interfaces with a `golang.org/x/text` adapter.
+That dependency has been **removed entirely**. The pluggable interfaces stay exactly as
+designed, but the CLDR-backed implementations are now generated from CLDR data into the
+repository and validated against Node's `Intl.*` (the same engine fluent.js uses), giving
+closer fluent.js parity with zero runtime dependencies.
+
+New packages (each stdlib-only, usable standalone):
+
+- `cldr/plural` — cardinal + ordinal rules generated from `cldr-core` (217 / 103 locales).
+  100% parity with `Intl.PluralRules` and with CLDR's own `@integer`/`@decimal` samples.
+- `cldr/number` — decimal / percent / currency formatting generated from
+  `cldr-numbers-full` + `cldr-core` currency data (710 locales). ~99.8% parity with
+  `Intl.NumberFormat` (residual is CLDR-45-vs-newer-ICU display-name skew).
+- `cldr/datetime` — date / time formatting generated from `cldr-dates-full` (710 locales):
+  dateStyle/timeStyle from CLDR patterns plus skeleton best-match for component options.
+  `timeStyle` 100% vs `Intl.DateTimeFormat`; dateStyle/component ~92–93% (gap is mostly
+  non-Gregorian default calendars for `fa`/`th` and CLDR data-version skew).
+
+Each package ships committed `tables_gen.go` plus a build-ignored generator and Node-based
+golden-fixture producers. `fluentx` is now a thin adapter mapping the core option structs
+onto these packages. The whole module depends only on the Go standard library
+(`go.mod` has no `require` block).

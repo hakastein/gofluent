@@ -1,12 +1,17 @@
 // Package fluentx provides locale-aware, CLDR-backed implementations of the
 // pluggable formatting interfaces defined in the core fluent package
-// (fluent.PluralRules, fluent.NumberFormatter, fluent.DateTimeFormatter),
-// built on golang.org/x/text.
+// (fluent.PluralRules, fluent.NumberFormatter, fluent.DateTimeFormatter).
+//
+// It is backed by the module's self-contained cldr packages (cldr/plural,
+// cldr/number, cldr/datetime), which are generated directly from the Unicode
+// CLDR data and have ZERO external dependencies. Their output is validated
+// against Node's Intl, so fluentx matches JavaScript's Intl.* objects (and
+// therefore fluent.js). There is no dependency on golang.org/x/text.
 //
 // The core fluent package is intentionally dependency-free and ships no-op
-// defaults; importing fluentx is the opt-in that pulls in golang.org/x/text and
-// wires real CLDR behavior. Plug the formatters into a bundle either with the
-// Options helper or with the individual bundle options:
+// defaults; importing fluentx is the opt-in that wires real CLDR behavior. Plug
+// the formatters into a bundle either with the Options helper or with the
+// individual bundle options:
 //
 //	b := fluent.NewBundle("ru", fluentx.Options()...)
 //

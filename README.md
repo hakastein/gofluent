@@ -4,14 +4,20 @@ A Go implementation of [Project Fluent](https://projectfluent.org) — a localiz
 system for natural-sounding translations.
 
 gofluent is a port of the reference JavaScript implementation
-([`@fluent/syntax`](https://github.com/projectfluent/fluent.js) and `@fluent/bundle`)
-with one deliberate change: locale-aware formatting (plural rules, numbers, dates) is
-exposed through **pluggable interfaces** instead of a hard CLDR dependency, so the core
-package has **zero external dependencies**. CLDR-backed formatters live in a separate
-`fluentx` package built on `golang.org/x/text`.
+([`@fluent/syntax`](https://github.com/projectfluent/fluent.js) and `@fluent/bundle`).
+Locale-aware formatting (plural rules, numbers, dates) is exposed through **pluggable
+interfaces**; the CLDR-backed implementations live in separate `cldr/*` packages
+**generated from CLDR data** and validated against Node's `Intl.*`, so they match
+fluent.js without depending on ICU at runtime.
+
+The **entire module has zero external dependencies** — no `golang.org/x/text`, nothing.
+All CLDR data is generated into the repository.
 
 The syntax parser and serializer are verified against the upstream Project Fluent
 conformance fixtures (62/62 structure, 35/36 reference — the one skip matches fluent.js).
+The CLDR formatters are verified against `Intl.PluralRules` (100% parity),
+`Intl.NumberFormat` (~99.8%), and `Intl.DateTimeFormat` (dateStyle/timeStyle from CLDR
+patterns; common component options) using golden fixtures dumped from Node.
 
 ## Install
 
@@ -25,11 +31,16 @@ Requires Go 1.26+.
 
 | Package | Purpose |
 | --- | --- |
-| `github.com/hakastein/gofluent` | Runtime: fast FTL parser, fault-tolerant resolver, `Bundle` (one locale). No external deps. |
+| `github.com/hakastein/gofluent` | Runtime: fast FTL parser, fault-tolerant resolver, `Bundle` (one locale). |
 | `.../syntax` (+ `.../syntax/ast`) | Full AST, recursive-descent parser, serializer, visitor — for tooling. |
-| `.../fluentx` | CLDR `PluralRules` / `NumberFormatter` / `DateTimeFormatter` on `golang.org/x/text`. |
+| `.../fluentx` | Wires the `cldr/*` formatters into a `Bundle` via `fluentx.Options()`. |
+| `.../cldr/plural` | CLDR cardinal & ordinal plural rules (217 / 103 locales). Usable standalone. |
+| `.../cldr/number` | CLDR number / percent / currency formatting (710 locales). Usable standalone. |
+| `.../cldr/datetime` | CLDR date / time formatting (710 locales). Usable standalone. |
 | `.../langneg` | Language negotiation (port of `@fluent/langneg`). |
 | `.../localization` | High-level fallback layer over an ordered chain of locale bundles. |
+
+Every package depends only on the Go standard library.
 
 ## Quick start
 
@@ -67,6 +78,19 @@ b := fluent.NewBundle("ru", fluentx.Options()...)
 b.AddResource(res) // { $n -> [one] ... [few] ... *[many] ... } now selects correctly
 ```
 
+The `cldr/*` packages are also usable on their own, independent of Fluent:
+
+```go
+import (
+    "github.com/hakastein/gofluent/cldr/number"
+    "github.com/hakastein/gofluent/cldr/plural"
+)
+
+number.Format("de", 1234.5, number.Options{})            // "1.234,5"
+number.Format("en", 1234, number.Options{Style: "currency", Currency: "USD"}) // "$1,234.00"
+plural.CardinalFor("ru", 2, 0, 0)                        // plural.Few
+```
+
 ## Localization with fallback
 
 ```go
@@ -88,10 +112,19 @@ l10n, _ := localization.NewFromLocales(
 val, _ := l10n.FormatValue("greeting", nil) // "Hallo", falling back to "en" if missing
 ```
 
+## Regenerating CLDR data
+
+The `cldr/*` packages ship generated tables (`tables_gen.go`) committed to the repo, so
+nothing is fetched at build time. To regenerate against a newer CLDR release, fetch the
+CLDR JSON (`npm install cldr-core cldr-numbers-full cldr-dates-full`), point the
+`//go:generate` directives at it, and run `go generate ./cldr/...`. The golden-fixture
+tests are produced from Node's `Intl.*`, so a working Node install reproduces them.
+
 ## Design
 
 See [`docs/superpowers/specs/2026-06-03-gofluent-design.md`](docs/superpowers/specs/2026-06-03-gofluent-design.md)
-for the full design and the decisions behind it.
+for the full design and the decisions behind it. CLDR formatting is self-contained
+(generated from CLDR data, matched to `Intl.*`) rather than delegated to `golang.org/x/text`.
 
 ## License
 

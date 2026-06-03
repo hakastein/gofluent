@@ -13,8 +13,8 @@
 //   - Package fluent/syntax: the full AST, recursive-descent parser, and
 //     serializer used by tooling and conformance.
 //   - Package fluent/fluentx: CLDR-backed [PluralRules], [NumberFormatter], and
-//     [DateTimeFormatter] implemented on golang.org/x/text. Import it to enable
-//     real locale formatting.
+//     [DateTimeFormatter] backed by the module's self-contained cldr packages
+//     (no external dependencies). Import it to enable real locale formatting.
 //   - Package fluent/langneg: language negotiation (a port of @fluent/langneg).
 //   - Package fluent/localization: a high-level layer that formats messages
 //     across an ordered chain of locale bundles with fallback.
