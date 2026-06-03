@@ -1,0 +1,10 @@
+# Local reference checkouts used during porting (not part of the module)
+/.reference/
+
+# Go
+*.test
+*.out
+/bin/
+/dist/
+.idea/
+.vscode/
