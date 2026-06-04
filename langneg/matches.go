@@ -170,15 +170,15 @@ outer:
 			}
 		}
 
-		// 6) Different region for the same locale id.
+		// 6) Different region for the same locale id. This is the final pass, so
+		// a non-terminal match simply falls through to the next requested locale
+		// — identical to "continue outer" — and the advance flag is unused here.
 		// Example: ['en-US'] * ['en-AU'] = ['en-AU'].
 		requestedLocale.ClearRegion()
-		if advance, stop := runPass(func(available *Locale) bool {
+		if _, stop := runPass(func(available *Locale) bool {
 			return available.Matches(requestedLocale, true, true)
 		}); stop {
 			return supported
-		} else if advance {
-			continue outer
 		}
 	}
 

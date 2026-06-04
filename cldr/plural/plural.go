@@ -373,7 +373,8 @@ func canonicalLocale(loc string) string {
 		case 2:
 			parts[i] = strings.ToUpper(p)
 		case 4:
-			parts[i] = strings.Title(strings.ToLower(p)) //nolint:staticcheck // simple script-case
+			// Script subtag: title-case it, e.g. "latn" -> "Latn".
+			parts[i] = strings.ToUpper(p[:1]) + strings.ToLower(p[1:])
 		default:
 			parts[i] = strings.ToLower(p)
 		}

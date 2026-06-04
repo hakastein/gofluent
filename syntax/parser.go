@@ -776,7 +776,7 @@ func (p *FluentParser) getExpression(ps *parserStream) (ast.Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		se := &ast.SelectExpression{Selector: selector.(ast.InlineExpression), Variants: variants}
+		se := &ast.SelectExpression{Selector: selector, Variants: variants}
 		p.addSpan(se, start, ps.index)
 		return se, nil
 	}

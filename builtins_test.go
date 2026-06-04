@@ -308,6 +308,7 @@ func TestFunctionPanicHandling(t *testing.T) {
 		// swallowed; it surfaces so the developer sees the real fault.
 		nilDeref := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 			var m map[string]int
+			//lint:ignore SA5000 intentional: asserts a genuine runtime panic is not swallowed
 			m["x"] = 1 // assignment to entry in nil map -> runtime panic
 			return fluent.FluentString("unreachable"), nil
 		}

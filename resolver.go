@@ -20,8 +20,8 @@ const MaxPlaceables = 100
 
 // Unicode bidi isolation characters.
 const (
-	fsi = "⁨"
-	pdi = "⁩"
+	fsi = "⁨" // U+2068 FIRST STRONG ISOLATE
+	pdi = "⁩" // U+2069 POP DIRECTIONAL ISOLATE
 )
 
 // Error kinds collected by FormatPattern, mirroring the JS error classes

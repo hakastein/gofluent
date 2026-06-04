@@ -218,6 +218,7 @@ type NotFoundError struct {
 	ID string
 }
 
+// Error implements the error interface.
 func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("localization: no bundle resolved id %q", e.ID)
 }

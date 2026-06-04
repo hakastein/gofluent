@@ -48,16 +48,7 @@ func resolveLocale(locale string) *localeData {
 		minGrouping:  int(e.minGrouping),
 		unitPatterns: map[string]string{},
 	}
-	ss := symbolSets[e.symSet]
-	ld.sym = symbols{
-		decimal:  ss.decimal,
-		group:    ss.group,
-		minus:    ss.minus,
-		percent:  ss.percent,
-		plus:     ss.plus,
-		nan:      ss.nan,
-		infinity: ss.infinity,
-	}
+	ld.sym = symbols(symbolSets[e.symSet])
 	ld.decimal = patternTable[e.decimalPat]
 	ld.percent = patternTable[e.percentPat]
 	ld.currency = patternTable[e.currencyPat]
