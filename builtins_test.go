@@ -1,8 +1,13 @@
-package fluent
+package fluent_test
 
 import (
+	"errors"
 	"testing"
 	"time"
+
+	fluent "github.com/hakastein/gofluent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Ported from functions_builtin_test.js and functions_runtime_test.js.
@@ -25,53 +30,41 @@ func TestNumberBuiltinDefaults(t *testing.T) {
 	t.Run("missing argument", func(t *testing.T) {
 		for _, id := range []string{"num-bare", "num-fraction-valid", "num-fraction-bad", "num-style", "num-unknown"} {
 			got, errs := format(t, b, id, map[string]any{})
-			if got != "{NUMBER($arg)}" {
-				t.Errorf("%s: got %q", id, got)
-			}
-			if len(errs) != 1 || !isReferenceError(errs[0]) {
-				t.Errorf("%s: expected reference error, got %v", id, errs)
-			}
+			assert.Equalf(t, "{NUMBER($arg)}", got, "%s", id)
+			require.Lenf(t, errs, 1, "%s: expected a single reference error", id)
+			require.ErrorIsf(t, errs[0], fluent.ErrReference, "%s", id)
 		}
 	})
 
 	t.Run("number argument", func(t *testing.T) {
 		// Default formatter: no grouping.
 		got, errs := format(t, b, "num-bare", map[string]any{"arg": 1234})
-		if got != "1234" || len(errs) != 0 {
-			t.Errorf("num-bare: got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "1234", got)
+		assert.Empty(t, errs)
+
 		got, errs = format(t, b, "num-fraction-valid", map[string]any{"arg": 1234})
-		if got != "1234.0" || len(errs) != 0 {
-			t.Errorf("num-fraction-valid: got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "1234.0", got)
+		assert.Empty(t, errs)
+
 		// Bad option value -> RangeError, falls back to plain value.
 		got, errs = format(t, b, "num-fraction-bad", map[string]any{"arg": 1234})
-		if got != "1234" {
-			t.Errorf("num-fraction-bad: got %q", got)
-		}
-		if len(errs) != 1 || !isRangeError(errs[0]) {
-			t.Errorf("num-fraction-bad: expected range error, got %v", errs)
-		}
+		assert.Equal(t, "1234", got)
+		require.Len(t, errs, 1, "expected a single range error")
+		require.ErrorIs(t, errs[0], fluent.ErrRange)
 	})
 
 	t.Run("string argument is invalid", func(t *testing.T) {
 		got, errs := format(t, b, "num-bare", map[string]any{"arg": "Foo"})
-		if got != "{NUMBER()}" {
-			t.Errorf("got %q", got)
-		}
-		if len(errs) != 1 || !isTypeError(errs[0]) {
-			t.Errorf("expected type error, got %v", errs)
-		}
+		assert.Equal(t, "{NUMBER()}", got)
+		require.Len(t, errs, 1, "expected a single type error")
+		require.ErrorIs(t, errs[0], fluent.ErrType)
 	})
 
 	t.Run("unsupported argument", func(t *testing.T) {
 		got, errs := format(t, b, "num-bare", map[string]any{"arg": []int{}})
-		if got != "{NUMBER($arg)}" {
-			t.Errorf("got %q", got)
-		}
-		if len(errs) != 1 || !isTypeError(errs[0]) {
-			t.Errorf("expected type error, got %v", errs)
-		}
+		assert.Equal(t, "{NUMBER($arg)}", got)
+		require.Len(t, errs, 1, "expected a single type error")
+		require.ErrorIs(t, errs[0], fluent.ErrType)
 	})
 }
 
@@ -81,33 +74,27 @@ func TestNumberBuiltinFluentNumberMerge(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	// minimumFractionDigits=3 from the arg is retained unless overridden.
-	arg := NewNumber(1234, NumberOptions{MinimumFractionDigits: intPtr(3)})
+	arg := fluent.NewNumber(1234, fluent.NumberOptions{MinimumFractionDigits: intPtr(3)})
 	msg, _ := b.GetMessage("num-bare")
 	var errs []error
-	if got := b.FormatPattern(msg.Value, map[string]Value{"arg": arg}, &errs); got != "1234.000" {
-		t.Errorf("bare: got %q want 1234.000", got)
-	}
+	assert.Equal(t, "1234.000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "bare retains arg fraction digits")
+
 	// The call's minimumFractionDigits:1 overrides the arg's 3.
 	msg, _ = b.GetMessage("num-fraction-valid")
-	if got := b.FormatPattern(msg.Value, map[string]Value{"arg": arg}, &errs); got != "1234.0" {
-		t.Errorf("override: got %q want 1234.0", got)
-	}
-	if len(errs) != 0 {
-		t.Errorf("errs: %v", errs)
-	}
+	assert.Equal(t, "1234.0", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "call overrides arg fraction digits")
+
+	assert.Empty(t, errs)
 }
 
 func TestNumberBuiltinFromDateTime(t *testing.T) {
 	// NUMBER on a FluentDateTime yields its epoch-millis number.
 	b := newTestBundle(t, "num-bare = { NUMBER($arg) }\n")
 	date := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
-	arg := NewDateTime(date, DateTimeOptions{Month: "short", Day: "numeric"})
+	arg := fluent.NewDateTime(date, fluent.DateTimeOptions{Month: "short", Day: "numeric"})
 	msg, _ := b.GetMessage("num-bare")
 	var errs []error
-	got := b.FormatPattern(msg.Value, map[string]Value{"arg": arg}, &errs)
-	if got != "1475107200000" || len(errs) != 0 {
-		t.Errorf("got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "1475107200000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs))
+	assert.Empty(t, errs)
 }
 
 func TestDateTimeBuiltin(t *testing.T) {
@@ -117,64 +104,56 @@ func TestDateTimeBuiltin(t *testing.T) {
 
 	t.Run("missing argument", func(t *testing.T) {
 		got, errs := format(t, b, "dt-bare", map[string]any{})
-		if got != "{DATETIME($arg)}" {
-			t.Errorf("got %q", got)
-		}
-		if len(errs) != 1 || !isReferenceError(errs[0]) {
-			t.Errorf("expected reference error, got %v", errs)
-		}
+		assert.Equal(t, "{DATETIME($arg)}", got)
+		require.Len(t, errs, 1, "expected a single reference error")
+		require.ErrorIs(t, errs[0], fluent.ErrReference)
 	})
 
 	t.Run("date argument default rendering", func(t *testing.T) {
 		// ADAPTATION: default formatter renders ISO-8601 UTC.
 		arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
 		got, errs := format(t, b, "dt-bare", map[string]any{"arg": arg})
-		if got != "2016-09-29T00:00:00.000Z" || len(errs) != 0 {
-			t.Errorf("got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "2016-09-29T00:00:00.000Z", got)
+		assert.Empty(t, errs)
 	})
 
 	t.Run("string argument is invalid", func(t *testing.T) {
 		got, errs := format(t, b, "dt-bare", map[string]any{"arg": "Foo"})
-		if got != "{DATETIME()}" {
-			t.Errorf("got %q", got)
-		}
-		if len(errs) != 1 || !isTypeError(errs[0]) {
-			t.Errorf("expected type error, got %v", errs)
-		}
+		assert.Equal(t, "{DATETIME()}", got)
+		require.Len(t, errs, 1, "expected a single type error")
+		require.ErrorIs(t, errs[0], fluent.ErrType)
 	})
 
 	t.Run("number argument becomes datetime", func(t *testing.T) {
 		// 0 ms since epoch.
 		got, errs := format(t, b, "dt-bare", map[string]any{"arg": 0})
-		if got != "1970-01-01T00:00:00.000Z" || len(errs) != 0 {
-			t.Errorf("got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "1970-01-01T00:00:00.000Z", got)
+		assert.Empty(t, errs)
 	})
 }
 
 func TestRuntimeFunctions(t *testing.T) {
-	concat := func(args []Value, _ map[string]Value) (Value, error) {
+	concat := func(args []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 		s := ""
 		for _, a := range args {
 			s += a.Format(nil)
 		}
-		return FluentString(s), nil
+		return fluent.FluentString(s), nil
 	}
-	sum := func(args []Value, _ map[string]Value) (Value, error) {
+	sum := func(args []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 		total := 0.0
 		for _, a := range args {
-			if n, ok := a.(*Number); ok {
+			if n, ok := a.(*fluent.Number); ok {
 				total += n.Value()
 			}
 		}
-		return NewNumber(total, NumberOptions{}), nil
+		return fluent.NewNumber(total, fluent.NumberOptions{}), nil
 	}
-	platform := func(_ []Value, _ map[string]Value) (Value, error) {
-		return FluentString("windows"), nil
+	platform := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
+		return fluent.FluentString("windows"), nil
 	}
 
-	b := NewBundle("en-US", WithUseIsolating(false), WithFunctions(map[string]Function{
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithFunctions(map[string]fluent.Function{
 		"CONCAT":   concat,
 		"SUM":      sum,
 		"PLATFORM": platform,
@@ -189,43 +168,38 @@ func TestRuntimeFunctions(t *testing.T) {
 	b.AddResource(mustParse(t, src))
 
 	got, errs := format(t, b, "foo", nil)
-	if got != "FooBar" || len(errs) != 0 {
-		t.Errorf("foo: %q %v", got, errs)
-	}
+	assert.Equal(t, "FooBar", got)
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "bar", nil)
-	if got != "3" || len(errs) != 0 {
-		t.Errorf("bar: %q %v", got, errs)
-	}
+	assert.Equal(t, "3", got)
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "pref", nil)
-	if got != "Options" || len(errs) != 0 {
-		t.Errorf("pref: %q %v", got, errs)
-	}
+	assert.Equal(t, "Options", got)
+	assert.Empty(t, errs)
 }
 
 func TestFunctionErrorIsRecovered(t *testing.T) {
-	boom := func(_ []Value, _ map[string]Value) (Value, error) {
-		return nil, newTypeError("boom")
+	// A function that returns any error has that error recovered and the call
+	// rendered as the {FUNC()} fallback. The error's concrete kind is the
+	// function's own choice, so a plain error exercises the public contract.
+	boom := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
+		return nil, errors.New("boom")
 	}
-	b := NewBundle("en-US", WithUseIsolating(false))
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 	b.AddFunction("BOOM", boom)
 	b.AddResource(mustParse(t, "foo = { BOOM() }\n"))
 
 	got, errs := format(t, b, "foo", nil)
-	if got != "{BOOM()}" {
-		t.Errorf("got %q", got)
-	}
-	if len(errs) != 1 || !isTypeError(errs[0]) {
-		t.Errorf("expected type error, got %v", errs)
-	}
+	assert.Equal(t, "{BOOM()}", got)
+	assert.Len(t, errs, 1, "the function error should be recovered into the sink")
 }
 
 func TestUnknownFunction(t *testing.T) {
 	b := newTestBundle(t, "foo = { MISSING() }\n")
 	got, errs := format(t, b, "foo", nil)
-	if got != "{MISSING()}" {
-		t.Errorf("got %q", got)
-	}
-	if len(errs) != 1 || !isReferenceError(errs[0]) {
-		t.Errorf("expected reference error, got %v", errs)
-	}
+	assert.Equal(t, "{MISSING()}", got)
+	require.Len(t, errs, 1, "expected a single reference error")
+	require.ErrorIs(t, errs[0], fluent.ErrReference)
 }

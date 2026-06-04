@@ -1,97 +1,118 @@
-package plural
+package plural_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hakastein/gofluent/cldr/plural"
+)
 
 func TestOperandsFromString(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name string
 		in   string
-		want Operands
+		want plural.Operands
 	}{
-		{"1", Operands{N: 1, I: 1, V: 0, W: 0, F: 0, T: 0, C: 0}},
-		{"1.0", Operands{N: 1, I: 1, V: 1, W: 0, F: 0, T: 0, C: 0}},
-		{"1.50", Operands{N: 1.5, I: 1, V: 2, W: 1, F: 50, T: 5, C: 0}},
-		{"1.230", Operands{N: 1.23, I: 1, V: 3, W: 2, F: 230, T: 23, C: 0}},
-		{"0", Operands{N: 0, I: 0}},
-		{"-7.5", Operands{N: 7.5, I: 7, V: 1, W: 1, F: 5, T: 5}},
-		{"1000000", Operands{N: 1000000, I: 1000000}},
+		{name: "integer", in: "1", want: plural.Operands{N: 1, I: 1, V: 0, W: 0, F: 0, T: 0, C: 0}},
+		{name: "one trailing zero", in: "1.0", want: plural.Operands{N: 1, I: 1, V: 1, W: 0, F: 0, T: 0, C: 0}},
+		{name: "two fraction digits", in: "1.50", want: plural.Operands{N: 1.5, I: 1, V: 2, W: 1, F: 50, T: 5, C: 0}},
+		{name: "three fraction digits", in: "1.230", want: plural.Operands{N: 1.23, I: 1, V: 3, W: 2, F: 230, T: 23, C: 0}},
+		{name: "zero", in: "0", want: plural.Operands{N: 0, I: 0}},
+		{name: "negative", in: "-7.5", want: plural.Operands{N: 7.5, I: 7, V: 1, W: 1, F: 5, T: 5}},
+		{name: "million", in: "1000000", want: plural.Operands{N: 1000000, I: 1000000}},
 		// compact exponent scales the value; c retains the exponent.
-		{"1c6", Operands{N: 1000000, I: 1000000, C: 6}},
-		{"1.0000001c6", Operands{N: 1000000.1, I: 1000000, V: 1, W: 1, F: 1, T: 1, C: 6}},
+		{name: "compact exponent", in: "1c6", want: plural.Operands{N: 1000000, I: 1000000, C: 6}},
+		{name: "compact with fraction", in: "1.0000001c6", want: plural.Operands{N: 1000000.1, I: 1000000, V: 1, W: 1, F: 1, T: 1, C: 6}},
 	}
-	for _, c := range cases {
-		got, err := OperandsFromString(c.in)
-		if err != nil {
-			t.Errorf("%q: unexpected error %v", c.in, err)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("%q: got %+v want %+v", c.in, got, c.want)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := plural.OperandsFromString(tc.in)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
 func TestNewOperands(t *testing.T) {
-	cases := []struct {
-		n            float64
-		minF, maxF   int
-		wantV, wantW int
-		wantI        int64
-		wantF, wantT int64
+	tests := []struct {
+		name       string
+		n          float64
+		minF, maxF int
+		wantV      int
+		wantW      int
+		wantI      int64
+		wantF      int64
+		wantT      int64
 	}{
-		{1, 0, 0, 0, 0, 1, 0, 0},
-		{1, 1, 3, 1, 0, 1, 0, 0},   // -> "1.0"
-		{1.5, 0, 3, 1, 1, 1, 5, 5}, // -> "1.5"
-		{1.5, 2, 2, 2, 1, 1, 50, 5},
-		{2.0, 1, 1, 1, 0, 2, 0, 0},
+		{name: "integer no fraction", n: 1, minF: 0, maxF: 0, wantV: 0, wantW: 0, wantI: 1, wantF: 0, wantT: 0},
+		{name: "min fraction pads to 1.0", n: 1, minF: 1, maxF: 3, wantV: 1, wantW: 0, wantI: 1, wantF: 0, wantT: 0},
+		{name: "1.5 trimmed", n: 1.5, minF: 0, maxF: 3, wantV: 1, wantW: 1, wantI: 1, wantF: 5, wantT: 5},
+		{name: "1.5 padded to two", n: 1.5, minF: 2, maxF: 2, wantV: 2, wantW: 1, wantI: 1, wantF: 50, wantT: 5},
+		{name: "2.0 with min fraction", n: 2.0, minF: 1, maxF: 1, wantV: 1, wantW: 0, wantI: 2, wantF: 0, wantT: 0},
 	}
-	for _, c := range cases {
-		o := NewOperands(c.n, c.minF, c.maxF)
-		if o.V != c.wantV || o.W != c.wantW || o.I != c.wantI || o.F != c.wantF || o.T != c.wantT {
-			t.Errorf("NewOperands(%v,%d,%d) = %+v", c.n, c.minF, c.maxF, o)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o := plural.NewOperands(tc.n, tc.minF, tc.maxF)
+			assert.Equal(t, tc.wantV, o.V, "V")
+			assert.Equal(t, tc.wantW, o.W, "W")
+			assert.Equal(t, tc.wantI, o.I, "I")
+			assert.Equal(t, tc.wantF, o.F, "F")
+			assert.Equal(t, tc.wantT, o.T, "T")
+		})
 	}
 }
 
 func TestLocaleFallback(t *testing.T) {
-	// en-US should fall back to en (one/other).
-	if got := CardinalFor("en-US", 1, 0, 0); got != One {
-		t.Errorf("en-US 1 = %q want one", got)
+	tests := []struct {
+		name   string
+		locale string
+		n      float64
+		want   plural.Category
+	}{
+		// en-US should fall back to en (one/other).
+		{name: "en-US 1 -> one", locale: "en-US", n: 1, want: plural.One},
+		{name: "en-US 2 -> other", locale: "en-US", n: 2, want: plural.Other},
+		// pt-PT is region-specific: 1 -> one (i=1,v=0), but 0 -> other (unlike pt).
+		{name: "pt-PT 1 -> one", locale: "pt-PT", n: 1, want: plural.One},
+		{name: "pt-PT 0 -> other", locale: "pt-PT", n: 0, want: plural.Other},
+		// pt: 0 and 1 are both one.
+		{name: "pt 0 -> one", locale: "pt", n: 0, want: plural.One},
+		// unknown locale -> root/other.
+		{name: "unknown locale -> other", locale: "zz", n: 5, want: plural.Other},
+		// underscore form normalises.
+		{name: "pt_PT 0 -> other", locale: "pt_PT", n: 0, want: plural.Other},
 	}
-	if got := CardinalFor("en-US", 2, 0, 0); got != Other {
-		t.Errorf("en-US 2 = %q want other", got)
-	}
-	// pt-PT is region-specific: 1 -> one (i=1,v=0), but 0 -> other (unlike pt).
-	if got := CardinalFor("pt-PT", 1, 0, 0); got != One {
-		t.Errorf("pt-PT 1 = %q want one", got)
-	}
-	if got := CardinalFor("pt-PT", 0, 0, 0); got != Other {
-		t.Errorf("pt-PT 0 = %q want other", got)
-	}
-	// pt: 0 and 1 are both one.
-	if got := CardinalFor("pt", 0, 0, 0); got != One {
-		t.Errorf("pt 0 = %q want one", got)
-	}
-	// unknown locale -> root/other.
-	if got := CardinalFor("zz", 5, 0, 0); got != Other {
-		t.Errorf("zz 5 = %q want other", got)
-	}
-	// underscore form normalises.
-	if got := CardinalFor("pt_PT", 0, 0, 0); got != Other {
-		t.Errorf("pt_PT 0 = %q want other", got)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := plural.CardinalFor(tc.locale, tc.n, 0, 0)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
 func TestRussianCardinal(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name string
 		n    int64
-		want Category
+		want plural.Category
 	}{
-		{1, One}, {21, One}, {2, Few}, {3, Few}, {4, Few},
-		{5, Many}, {11, Many}, {12, Many}, {0, Many}, {100, Many},
+		{name: "1 -> one", n: 1, want: plural.One},
+		{name: "21 -> one", n: 21, want: plural.One},
+		{name: "2 -> few", n: 2, want: plural.Few},
+		{name: "3 -> few", n: 3, want: plural.Few},
+		{name: "4 -> few", n: 4, want: plural.Few},
+		{name: "5 -> many", n: 5, want: plural.Many},
+		{name: "11 -> many", n: 11, want: plural.Many},
+		{name: "12 -> many", n: 12, want: plural.Many},
+		{name: "0 -> many", n: 0, want: plural.Many},
+		{name: "100 -> many", n: 100, want: plural.Many},
 	}
-	for _, c := range cases {
-		if got := CardinalFor("ru", float64(c.n), 0, 0); got != c.want {
-			t.Errorf("ru %d = %q want %q", c.n, got, c.want)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := plural.CardinalFor("ru", float64(tc.n), 0, 0)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }

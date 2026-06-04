@@ -1,12 +1,14 @@
-package syntax
+package syntax_test
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hakastein/gofluent/syntax"
 	"github.com/hakastein/gofluent/syntax/ast"
 )
 
@@ -35,23 +37,11 @@ func TestFixtureSpotChecks(t *testing.T) {
 				t.Skipf("expected json missing: %v", err)
 			}
 
-			res := Parse(string(ftl))
+			res := syntax.Parse(string(ftl))
 			gotBytes, err := ast.Marshal(res, true)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
+			require.NoError(t, err, "marshal")
 
-			var got, want interface{}
-			if err := json.Unmarshal(gotBytes, &got); err != nil {
-				t.Fatalf("unmarshal got: %v", err)
-			}
-			if err := json.Unmarshal(wantBytes, &want); err != nil {
-				t.Fatalf("unmarshal want: %v", err)
-			}
-
-			if !reflect.DeepEqual(got, want) {
-				t.Errorf("AST mismatch for %s.\n got: %s", name, gotBytes)
-			}
+			assert.JSONEq(t, string(wantBytes), string(gotBytes), "AST mismatch for %s", name)
 		})
 	}
 }

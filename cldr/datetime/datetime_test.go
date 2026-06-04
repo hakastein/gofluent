@@ -1,4 +1,4 @@
-package datetime
+package datetime_test
 
 import (
 	"encoding/json"
@@ -8,6 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hakastein/gofluent/cldr/datetime"
 )
 
 // jsCase mirrors one entry of testdata/intl_dates.json.
@@ -19,8 +24,8 @@ type jsCase struct {
 	Value  string         `json:"value"`
 }
 
-func toOptions(m map[string]any) Options {
-	var o Options
+func toOptions(m map[string]any) datetime.Options {
+	var o datetime.Options
 	str := func(k string) string {
 		if v, ok := m[k]; ok {
 			if s, ok := v.(string); ok {
@@ -77,16 +82,20 @@ func category(tag string) string {
 func loadCases(t *testing.T) []jsCase {
 	t.Helper()
 	data, err := os.ReadFile("testdata/intl_dates.json")
-	if err != nil {
-		t.Fatalf("read fixtures: %v", err)
-	}
+	require.NoError(t, err, "read fixtures")
 	var cases []jsCase
-	if err := json.Unmarshal(data, &cases); err != nil {
-		t.Fatalf("parse fixtures: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(data, &cases), "parse fixtures")
+	require.NotEmpty(t, cases, "no fixtures loaded")
 	return cases
 }
 
+// TestIntlMatch reports the per-category and per-tag match rates against
+// JavaScript's Intl.DateTimeFormat and prints sample divergences. It is a
+// diagnostic breakdown; the gating assertions live in TestThresholds. The
+// overall rate is intentionally below 100% (two matrix locales, fa and th,
+// default to non-Gregorian calendars this package does not implement, and
+// node's bundled ICU is a newer CLDR release than the cldr-dates-full snapshot
+// we generate from).
 func TestIntlMatch(t *testing.T) {
 	cases := loadCases(t)
 
@@ -100,7 +109,7 @@ func TestIntlMatch(t *testing.T) {
 	for _, c := range cases {
 		opts := toOptions(c.Opts)
 		tm := time.UnixMilli(c.MS).UTC()
-		got := Format(c.Locale, tm, opts)
+		got := datetime.Format(c.Locale, tm, opts)
 
 		cat := category(c.Tag)
 		if byCat[cat] == nil {
@@ -178,7 +187,7 @@ func TestThresholds(t *testing.T) {
 	for _, c := range cases {
 		opts := toOptions(c.Opts)
 		tm := time.UnixMilli(c.MS).UTC()
-		got := Format(c.Locale, tm, opts)
+		got := datetime.Format(c.Locale, tm, opts)
 		cat := category(c.Tag)
 		if byCat[cat] == nil {
 			byCat[cat] = &stat{}
@@ -202,24 +211,22 @@ func TestThresholds(t *testing.T) {
 		"component":       0.90,
 	}
 	for cat, min := range thresholds {
-		s := byCat[cat]
-		if s == nil {
-			t.Errorf("category %q missing from fixtures", cat)
-			continue
-		}
-		rate := float64(s.pass) / float64(s.total)
-		if rate < min {
-			t.Errorf("category %q match rate %.3f below threshold %.3f (%d/%d)",
+		t.Run(cat, func(t *testing.T) {
+			s := byCat[cat]
+			require.NotNilf(t, s, "category %q missing from fixtures", cat)
+			rate := float64(s.pass) / float64(s.total)
+			assert.GreaterOrEqualf(t, rate, min,
+				"category %q match rate %.3f below threshold %.3f (%d/%d)",
 				cat, rate, min, s.pass, s.total)
-		}
+		})
 	}
 }
 
 // ExampleFormat shows the public API.
 func ExampleFormat() {
 	t := time.Date(2021, 1, 5, 15, 4, 5, 0, time.UTC)
-	fmt.Println(Format("en", t, Options{DateStyle: "long", TimeStyle: "short", TimeZone: "UTC"}))
-	fmt.Println(Format("fr", t, Options{DateStyle: "full", TimeStyle: "medium", TimeZone: "UTC"}))
+	fmt.Println(datetime.Format("en", t, datetime.Options{DateStyle: "long", TimeStyle: "short", TimeZone: "UTC"}))
+	fmt.Println(datetime.Format("fr", t, datetime.Options{DateStyle: "full", TimeStyle: "medium", TimeZone: "UTC"}))
 	// Output:
 	// January 5, 2021 at 3:04 PM
 	// mardi 5 janvier 2021 à 15:04:05

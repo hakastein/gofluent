@@ -1,6 +1,7 @@
 package fluent
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -22,19 +23,38 @@ const (
 	pdi = "⁩"
 )
 
-// referenceError / rangeError / typeError mirror the JS error classes so tests
-// can distinguish them (errors.As / errors.Is on the typed wrappers).
+// Error kinds collected by FormatPattern, mirroring the JS error classes
+// fluent.js reports (ReferenceError / RangeError / TypeError). Every resolution
+// error wraps one of these sentinels, so a caller can classify a failure with
+// errors.Is, e.g. errors.Is(err, fluent.ErrReference).
+var (
+	// ErrReference: an unknown message, term, variable, function, or attribute
+	// was referenced.
+	ErrReference = errors.New("fluent: reference error")
+	// ErrRange: no variant matched a selector, a value is out of range, a
+	// reference is cyclic, or the placeable limit was exceeded.
+	ErrRange = errors.New("fluent: range error")
+	// ErrType: a value cannot be used in the position it appears (e.g. a
+	// non-numeric selector argument, or a term used as a placeable).
+	ErrType = errors.New("fluent: type error")
+)
+
+// referenceError / rangeError / typeError carry the human-readable message and
+// unwrap to the corresponding exported sentinel for errors.Is classification.
 type referenceError struct{ msg string }
 
 func (e *referenceError) Error() string { return e.msg }
+func (e *referenceError) Unwrap() error { return ErrReference }
 
 type rangeError struct{ msg string }
 
 func (e *rangeError) Error() string { return e.msg }
+func (e *rangeError) Unwrap() error { return ErrRange }
 
 type typeError struct{ msg string }
 
 func (e *typeError) Error() string { return e.msg }
+func (e *typeError) Unwrap() error { return ErrType }
 
 func newReferenceError(format string, a ...any) *referenceError {
 	return &referenceError{msg: fmt.Sprintf(format, a...)}

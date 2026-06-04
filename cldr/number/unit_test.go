@@ -1,8 +1,12 @@
-package number
+package number_test
 
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/hakastein/gofluent/cldr/number"
 )
 
 func ptrInt(i int) *int    { return &i }
@@ -11,79 +15,87 @@ func ptrBool(b bool) *bool { return &b }
 // TestSpecialValues covers non-finite inputs, which Intl renders via locale
 // symbols.
 func TestSpecialValues(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name   string
 		locale string
 		value  float64
 		want   string
 	}{
-		{"en", math.NaN(), "NaN"},
-		{"en", math.Inf(1), "∞"},
-		{"en", math.Inf(-1), "-∞"},
-		{"de", math.NaN(), "NaN"},
+		{name: "en NaN", locale: "en", value: math.NaN(), want: "NaN"},
+		{name: "en +Inf", locale: "en", value: math.Inf(1), want: "∞"},
+		{name: "en -Inf", locale: "en", value: math.Inf(-1), want: "-∞"},
+		{name: "de NaN", locale: "de", value: math.NaN(), want: "NaN"},
 	}
-	for _, c := range cases {
-		if got := Format(c.locale, c.value, Options{}); got != c.want {
-			t.Errorf("Format(%q, %v) = %q, want %q", c.locale, c.value, got, c.want)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := number.Format(tc.locale, tc.value, number.Options{})
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
 // TestLocaleFallback verifies the exact -> truncate -> root resolution chain.
 func TestLocaleFallback(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name   string
 		locale string
 		want   string
 	}{
-		{"en-XX", "1,234.5"},      // unknown region falls back to en
-		{"zh-Hans-CN", "1,234.5"}, // multi-subtag resolves like zh
-		{"EN", "1,234.5"},         // case-insensitive language subtag
-		{"de_DE", "1.234,5"},      // underscore separator, region present
+		{name: "unknown region falls back to en", locale: "en-XX", want: "1,234.5"},
+		{name: "multi-subtag resolves like zh", locale: "zh-Hans-CN", want: "1,234.5"},
+		{name: "case-insensitive language subtag", locale: "EN", want: "1,234.5"},
+		{name: "underscore separator, region present", locale: "de_DE", want: "1.234,5"},
 	}
-	for _, c := range cases {
-		if got := Format(c.locale, 1234.5, Options{}); got != c.want {
-			t.Errorf("Format(%q, 1234.5) = %q, want %q", c.locale, got, c.want)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := number.Format(tc.locale, 1234.5, number.Options{})
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
-// TestAccountingUnused confirms the standard (non-accounting) currency pattern
-// is used by default and that negative values use the locale minus sign.
+// TestCurrencyBasics confirms the standard (non-accounting) currency pattern is
+// used by default and that negative values use the locale minus sign.
 func TestCurrencyBasics(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name   string
 		locale string
 		value  float64
-		opts   Options
+		opts   number.Options
 		want   string
 	}{
-		{"en", 1234.5, Options{Style: "currency", Currency: "usd"}, "$1,234.50"}, // lowercase code
-		{"en", -5, Options{Style: "currency", Currency: "USD"}, "-$5.00"},
-		{"en", 1234.5, Options{Style: "currency", Currency: "JPY"}, "¥1,235"},
-		{"en", 1234.5, Options{Style: "currency", Currency: "XYZ"}, "XYZ 1,234.50"}, // unknown currency -> code
+		{name: "lowercase code", locale: "en", value: 1234.5, opts: number.Options{Style: "currency", Currency: "usd"}, want: "$1,234.50"},
+		{name: "negative uses minus sign", locale: "en", value: -5, opts: number.Options{Style: "currency", Currency: "USD"}, want: "-$5.00"},
+		{name: "JPY no fraction", locale: "en", value: 1234.5, opts: number.Options{Style: "currency", Currency: "JPY"}, want: "¥1,235"},
+		{name: "unknown currency -> code", locale: "en", value: 1234.5, opts: number.Options{Style: "currency", Currency: "XYZ"}, want: "XYZ 1,234.50"},
 	}
-	for _, c := range cases {
-		if got := Format(c.locale, c.value, c.opts); got != c.want {
-			t.Errorf("Format(%q, %v, %+v) = %q, want %q", c.locale, c.value, c.opts, got, c.want)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := number.Format(tc.locale, tc.value, tc.opts)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
-// TestOptionsRoundingModes exercises a few representative option combinations.
+// TestOptions exercises a few representative option combinations.
 func TestOptions(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
+		name   string
 		locale string
 		value  float64
-		opts   Options
+		opts   number.Options
 		want   string
 	}{
-		{"en", 2.5, Options{MaximumFractionDigits: ptrInt(0)}, "3"},   // half away from zero
-		{"en", -2.5, Options{MaximumFractionDigits: ptrInt(0)}, "-3"}, // away from zero on negatives too
-		{"en", 1234567, Options{UseGrouping: ptrBool(false)}, "1234567"},
-		{"en", 1, Options{MinimumIntegerDigits: ptrInt(3)}, "001"},
-		{"en", 12345.678, Options{MaximumSignificantDigits: ptrInt(3)}, "12,300"},
+		{name: "half away from zero", locale: "en", value: 2.5, opts: number.Options{MaximumFractionDigits: ptrInt(0)}, want: "3"},
+		{name: "away from zero on negatives", locale: "en", value: -2.5, opts: number.Options{MaximumFractionDigits: ptrInt(0)}, want: "-3"},
+		{name: "grouping disabled", locale: "en", value: 1234567, opts: number.Options{UseGrouping: ptrBool(false)}, want: "1234567"},
+		{name: "minimum integer digits pad", locale: "en", value: 1, opts: number.Options{MinimumIntegerDigits: ptrInt(3)}, want: "001"},
+		{name: "maximum significant digits", locale: "en", value: 12345.678, opts: number.Options{MaximumSignificantDigits: ptrInt(3)}, want: "12,300"},
 	}
-	for _, c := range cases {
-		if got := Format(c.locale, c.value, c.opts); got != c.want {
-			t.Errorf("Format(%q, %v, %+v) = %q, want %q", c.locale, c.value, c.opts, got, c.want)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := number.Format(tc.locale, tc.value, tc.opts)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }

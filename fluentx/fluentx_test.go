@@ -1,18 +1,20 @@
-package fluentx
+package fluentx_test
 
 import (
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/hakastein/gofluent"
+	fluent "github.com/hakastein/gofluent"
+	"github.com/hakastein/gofluent/fluentx"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func intp(i int) *int    { return &i }
 func boolp(b bool) *bool { return &b }
 
 func TestPluralCardinal(t *testing.T) {
-	pr := NewPluralRules()
+	pr := fluentx.NewPluralRules()
 	cases := []struct {
 		locale string
 		n      float64
@@ -49,14 +51,12 @@ func TestPluralCardinal(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := pr.Cardinal(c.locale, c.n, fluent.NumberOptions{})
-		if got != c.want {
-			t.Errorf("Cardinal(%q, %v) = %q, want %q", c.locale, c.n, got, c.want)
-		}
+		assert.Equalf(t, c.want, got, "Cardinal(%q, %v)", c.locale, c.n)
 	}
 }
 
 func TestPluralOrdinal(t *testing.T) {
-	pr := NewPluralRules()
+	pr := fluentx.NewPluralRules()
 	cases := []struct {
 		n    float64
 		want string
@@ -69,9 +69,7 @@ func TestPluralOrdinal(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := pr.Ordinal("en", c.n, fluent.NumberOptions{})
-		if got != c.want {
-			t.Errorf("Ordinal(en, %v) = %q, want %q", c.n, got, c.want)
-		}
+		assert.Equalf(t, c.want, got, "Ordinal(en, %v)", c.n)
 	}
 }
 
@@ -79,34 +77,31 @@ func TestPluralOrdinal(t *testing.T) {
 // plural operands: with minimumFractionDigits the number is treated as having
 // visible decimals (English "1.0" is category "other", not "one").
 func TestPluralFractionDigits(t *testing.T) {
-	pr := NewPluralRules()
-	if got := pr.Cardinal("en", 1, fluent.NumberOptions{MinimumFractionDigits: intp(1)}); got != "other" {
-		t.Errorf("Cardinal(en, 1, minFrac=1) = %q, want other", got)
-	}
-	if got := pr.Cardinal("en", 1, fluent.NumberOptions{}); got != "one" {
-		t.Errorf("Cardinal(en, 1) = %q, want one", got)
-	}
+	pr := fluentx.NewPluralRules()
+
+	assert.Equal(t, "other", pr.Cardinal("en", 1, fluent.NumberOptions{MinimumFractionDigits: intp(1)}),
+		"Cardinal(en, 1, minFrac=1)")
+	assert.Equal(t, "one", pr.Cardinal("en", 1, fluent.NumberOptions{}),
+		"Cardinal(en, 1)")
 	// A value with its own fraction digits is treated as decimal even without
 	// options (English "1.5" is "other").
-	if got := pr.Cardinal("en", 1.5, fluent.NumberOptions{}); got != "other" {
-		t.Errorf("Cardinal(en, 1.5) = %q, want other", got)
-	}
+	assert.Equal(t, "other", pr.Cardinal("en", 1.5, fluent.NumberOptions{}),
+		"Cardinal(en, 1.5)")
 	// maximumFractionDigits can round a decimal back to an integer category
 	// (English "1.0" rounded to 0 fraction digits selects "one").
-	if got := pr.Cardinal("en", 1.0, fluent.NumberOptions{MaximumFractionDigits: intp(0)}); got != "one" {
-		t.Errorf("Cardinal(en, 1.0, maxFrac=0) = %q, want one", got)
-	}
+	assert.Equal(t, "one", pr.Cardinal("en", 1.0, fluent.NumberOptions{MaximumFractionDigits: intp(0)}),
+		"Cardinal(en, 1.0, maxFrac=0)")
 }
 
 func TestFormatNumber(t *testing.T) {
-	nf := NewNumberFormatter()
+	nf := fluentx.NewNumberFormatter()
 	// The CLDR group separators emitted by cldr/number (matching Intl): French
 	// uses a narrow no-break space (U+202F); Russian uses a no-break space
 	// (U+00A0). Currency amounts that place the symbol after the digits insert a
 	// no-break space (U+00A0) between them, exactly as Intl does.
 	const (
-		narrowNBSP = " "
-		nbsp       = " "
+		narrowNBSP = " " // U+202F NARROW NO-BREAK SPACE
+		nbsp       = " " // U+00A0 NO-BREAK SPACE
 	)
 	cases := []struct {
 		name   string
@@ -137,15 +132,13 @@ func TestFormatNumber(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := nf.FormatNumber(c.locale, c.n, c.opts)
-			if got != c.want {
-				t.Errorf("FormatNumber(%q, %v, %+v) = %q, want %q", c.locale, c.n, c.opts, got, c.want)
-			}
+			assert.Equalf(t, c.want, got, "FormatNumber(%q, %v, %+v)", c.locale, c.n, c.opts)
 		})
 	}
 }
 
 func TestFormatDateTime(t *testing.T) {
-	dtf := NewDateTimeFormatter()
+	dtf := fluentx.NewDateTimeFormatter()
 	ts := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
 
 	cases := []struct {
@@ -171,9 +164,7 @@ func TestFormatDateTime(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := dtf.FormatDateTime(c.locale, ts, c.opts)
-			if got != c.want {
-				t.Errorf("FormatDateTime(%q, %+v) = %q, want %q", c.locale, c.opts, got, c.want)
-			}
+			assert.Equalf(t, c.want, got, "FormatDateTime(%q, %+v)", c.locale, c.opts)
 		})
 	}
 }
@@ -181,14 +172,12 @@ func TestFormatDateTime(t *testing.T) {
 // TestDateTimeTimeZone verifies the timeZone option is applied via
 // time.LoadLocation: 14:09 UTC becomes 09:09 in America/New_York (EST, UTC-5).
 func TestDateTimeTimeZone(t *testing.T) {
-	dtf := NewDateTimeFormatter()
+	dtf := fluentx.NewDateTimeFormatter()
 	ts := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
 	got := dtf.FormatDateTime("en", ts, fluent.DateTimeOptions{
 		Hour: "2-digit", Minute: "2-digit", Hour12: boolp(false), TimeZone: "America/New_York",
 	})
-	if got != "09:09" {
-		t.Errorf("timeZone conversion = %q, want 09:09", got)
-	}
+	assert.Equal(t, "09:09", got, "timeZone conversion")
 }
 
 // TestIntegration wires the fluentx formatters into a real fluent.Bundle and
@@ -205,49 +194,37 @@ total = Total: { NUMBER($n, useGrouping: 1) }
 `
 
 	t.Run("ru plural few for 2", func(t *testing.T) {
-		b := fluent.NewBundle("ru", Options()...)
+		b := fluent.NewBundle("ru", fluentx.Options()...)
 		res, errs := fluent.NewResource(ftl)
-		if len(errs) > 0 {
-			t.Fatalf("parse errors: %v", errs)
-		}
-		if errs := b.AddResource(res); len(errs) > 0 {
-			t.Fatalf("addResource errors: %v", errs)
-		}
+		require.Empty(t, errs, "parse errors")
+		require.Empty(t, b.AddResource(res), "addResource errors")
 		msg, ok := b.GetMessage("items")
-		if !ok {
-			t.Fatal("message items missing")
-		}
+		require.True(t, ok, "message items missing")
 		out := b.FormatPatternAny(msg.Value, map[string]any{"n": 2}, nil)
-		if !strings.Contains(out, "(few)") {
-			t.Errorf("ru n=2 => %q, want the [few] variant", out)
-		}
+		assert.Contains(t, out, "(few)", "ru n=2 want the [few] variant")
 	})
 
 	t.Run("en plural one for 1", func(t *testing.T) {
 		b := fluent.NewBundle("en", fluent.WithUseIsolating(false))
-		for _, opt := range Options() {
+		for _, opt := range fluentx.Options() {
 			opt(b)
 		}
 		res, _ := fluent.NewResource(ftl)
 		b.AddResource(res)
 		msg, _ := b.GetMessage("items")
 		out := b.FormatPatternAny(msg.Value, map[string]any{"n": 1}, nil)
-		if out != "1 item" {
-			t.Errorf("en n=1 => %q, want \"1 item\" (the [one] variant)", out)
-		}
+		assert.Equal(t, "1 item", out, "en n=1 want the [one] variant")
 	})
 
 	t.Run("en number grouping in NUMBER placeable", func(t *testing.T) {
 		b := fluent.NewBundle("en", fluent.WithUseIsolating(false),
-			fluent.WithNumberFormatter(NewNumberFormatter()),
-			fluent.WithPluralRules(NewPluralRules()),
+			fluent.WithNumberFormatter(fluentx.NewNumberFormatter()),
+			fluent.WithPluralRules(fluentx.NewPluralRules()),
 		)
 		res, _ := fluent.NewResource(ftl)
 		b.AddResource(res)
 		msg, _ := b.GetMessage("total")
 		out := b.FormatPatternAny(msg.Value, map[string]any{"n": 1234567}, nil)
-		if out != "Total: 1,234,567" {
-			t.Errorf("en NUMBER grouping => %q, want \"Total: 1,234,567\"", out)
-		}
+		assert.Equal(t, "Total: 1,234,567", out, "en NUMBER grouping")
 	})
 }

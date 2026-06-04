@@ -1,4 +1,4 @@
-package number
+package number_test
 
 import (
 	"encoding/json"
@@ -6,6 +6,11 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hakastein/gofluent/cldr/number"
 )
 
 type fixture struct {
@@ -27,8 +32,8 @@ type rawOptions struct {
 	MaximumSignificantDigits *int   `json:"maximumSignificantDigits"`
 }
 
-func (r rawOptions) toOptions() Options {
-	return Options{
+func (r rawOptions) toOptions() number.Options {
+	return number.Options{
 		Style:                    r.Style,
 		Currency:                 r.Currency,
 		CurrencyDisplay:          r.CurrencyDisplay,
@@ -44,13 +49,10 @@ func (r rawOptions) toOptions() Options {
 func loadFixtures(t *testing.T) []fixture {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/intl_numbers.json")
-	if err != nil {
-		t.Fatalf("read fixtures: %v", err)
-	}
+	require.NoError(t, err, "read fixtures")
 	var fs []fixture
-	if err := json.Unmarshal(raw, &fs); err != nil {
-		t.Fatalf("parse fixtures: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw, &fs), "parse fixtures")
+	require.NotEmpty(t, fs, "no fixtures loaded")
 	return fs
 }
 
@@ -70,10 +72,10 @@ func TestIntlMatch(t *testing.T) {
 
 	for _, f := range fs {
 		var ro rawOptions
-		if err := json.Unmarshal(f.Options, &ro); err != nil {
-			t.Fatalf("parse options: %v", err)
-		}
-		got := Format(f.Locale, f.Value, ro.toOptions())
+		require.NoError(t, json.Unmarshal(f.Options, &ro), "parse options")
+		got := number.Format(f.Locale, f.Value, ro.toOptions())
+		// Per-row assertion: every divergence is reported, not just bucketed.
+		assert.Equalf(t, f.Expected, got, "Format(%q, %v, %s)", f.Locale, f.Value, f.Options)
 		if got == f.Expected {
 			matched++
 			continue
@@ -131,9 +133,7 @@ func TestIntlMatch(t *testing.T) {
 	// display names gained qualifiers ("yuan" -> "yuan renminbi", "yen" ->
 	// "yenes japoneses") in CLDR 46. These are faithful to the source data, not
 	// algorithm defects. The threshold leaves a small margin for that drift.
-	if rate < 99.5 {
-		t.Errorf("Intl match rate %.2f%% below 99.5%% threshold", rate)
-	}
+	assert.GreaterOrEqualf(t, rate, 99.5, "Intl match rate %.2f%% below 99.5%% threshold", rate)
 }
 
 func nonEmpty(s, def string) string {

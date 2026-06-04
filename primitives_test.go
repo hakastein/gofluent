@@ -1,6 +1,10 @@
-package fluent
+package fluent_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 // Ported from primitives_test.js.
 
@@ -13,13 +17,12 @@ func TestPrimitiveNumbers(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "one", nil)
-	if got != "1" || len(errs) != 0 {
-		t.Errorf("one: %q %v", got, errs)
-	}
+	assert.Equal(t, "1", got)
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "select", nil)
-	if got != "One" || len(errs) != 0 {
-		t.Errorf("select: %q %v", got, errs)
-	}
+	assert.Equal(t, "One", got)
+	assert.Empty(t, errs)
 }
 
 func TestPrimitiveSimpleStrings(t *testing.T) {
@@ -57,18 +60,17 @@ func TestPrimitiveSimpleStrings(t *testing.T) {
 		{"selector-attr", "Member 3"},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, nil)
-		if got != tc.want || len(errs) != 0 {
-			t.Errorf("%s: got %q want %q errs %v", tc.id, got, tc.want, errs)
-		}
+		t.Run(tc.id, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, nil)
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, errs)
+		})
 	}
 
 	// Attribute value directly.
 	msg, _ := b.GetMessage("bar")
 	var aerr []error
-	if got := b.FormatPattern(msg.Attributes["attr"], nil, &aerr); got != "Bar Attribute" {
-		t.Errorf("bar.attr: %q", got)
-	}
+	assert.Equal(t, "Bar Attribute", b.FormatPattern(msg.Attributes["attr"], nil, &aerr))
 }
 
 func TestPrimitiveComplexStrings(t *testing.T) {
@@ -89,24 +91,22 @@ func TestPrimitiveComplexStrings(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "bar", nil)
-	if got != "FooBar" || len(errs) != 0 {
-		t.Errorf("bar: %q %v", got, errs)
-	}
+	assert.Equal(t, "FooBar", got)
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "placeable-message", nil)
-	if got != "FooBarBaz" || len(errs) != 0 {
-		t.Errorf("placeable-message: %q %v", got, errs)
-	}
+	assert.Equal(t, "FooBarBaz", got)
+	assert.Empty(t, errs)
+
 	msg, _ := b.GetMessage("baz")
 	var aerr []error
-	if got := b.FormatPattern(msg.Attributes["attr"], nil, &aerr); got != "FooBarBazAttribute" {
-		t.Errorf("baz.attr: %q", got)
-	}
+	assert.Equal(t, "FooBarBazAttribute", b.FormatPattern(msg.Attributes["attr"], nil, &aerr))
+
 	got, errs = format(t, b, "placeable-attr", nil)
-	if got != "FooBarBazAttribute" || len(errs) != 0 {
-		t.Errorf("placeable-attr: %q %v", got, errs)
-	}
+	assert.Equal(t, "FooBarBazAttribute", got)
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "selector-attr", nil)
-	if got != "FooBarBaz" || len(errs) != 0 {
-		t.Errorf("selector-attr: %q %v", got, errs)
-	}
+	assert.Equal(t, "FooBarBaz", got)
+	assert.Empty(t, errs)
 }

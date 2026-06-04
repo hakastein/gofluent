@@ -1,6 +1,12 @@
-package fluent
+package fluent_test
 
-import "testing"
+import (
+	"testing"
+
+	fluent "github.com/hakastein/gofluent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 // Ported from select_expressions_test.js and literals_test.js.
 
@@ -8,12 +14,9 @@ func TestSelectMissingSelector(t *testing.T) {
 	src := "select = {$none ->\n    [a] A\n   *[b] B\n}\n"
 	b := newTestBundle(t, src)
 	got, errs := format(t, b, "select", nil)
-	if got != "B" {
-		t.Errorf("got %q want B", got)
-	}
-	if len(errs) != 1 || !isReferenceError(errs[0]) {
-		t.Errorf("expected 1 reference error, got %v", errs)
-	}
+	assert.Equal(t, "B", got)
+	require.Len(t, errs, 1, "a missing selector reports a single reference error")
+	require.ErrorIs(t, errs[0], fluent.ErrReference)
 }
 
 func TestStringSelectors(t *testing.T) {
@@ -21,13 +24,12 @@ func TestStringSelectors(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "select", map[string]any{"selector": "a"})
-	if got != "A" || len(errs) != 0 {
-		t.Errorf("matching: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "A", got, "matching")
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "select", map[string]any{"selector": "c"})
-	if got != "B" || len(errs) != 0 {
-		t.Errorf("non-matching: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "B", got, "non-matching falls back to default")
+	assert.Empty(t, errs)
 }
 
 func TestNumberSelectors(t *testing.T) {
@@ -35,13 +37,12 @@ func TestNumberSelectors(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "select", map[string]any{"selector": 0})
-	if got != "A" || len(errs) != 0 {
-		t.Errorf("matching: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "A", got, "matching")
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "select", map[string]any{"selector": 2})
-	if got != "B" || len(errs) != 0 {
-		t.Errorf("non-matching: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "B", got, "non-matching falls back to default")
+	assert.Empty(t, errs)
 }
 
 func TestPluralCategoryStringMatch(t *testing.T) {
@@ -51,13 +52,12 @@ func TestPluralCategoryStringMatch(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "select", map[string]any{"selector": "one"})
-	if got != "A" || len(errs) != 0 {
-		t.Errorf("string one: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "A", got, "string one")
+	assert.Empty(t, errs)
+
 	got, errs = format(t, b, "select", map[string]any{"selector": "other"})
-	if got != "B" || len(errs) != 0 {
-		t.Errorf("string other: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "B", got, "string other")
+	assert.Empty(t, errs)
 }
 
 func TestLiteralSelectors(t *testing.T) {
@@ -75,14 +75,13 @@ func TestLiteralSelectors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := newTestBundle(t, tc.src)
 			got, errs := format(t, b, "foo", nil)
-			if got != tc.want || len(errs) != 0 {
-				t.Errorf("got %q want %q errs %v", got, tc.want, errs)
-			}
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, errs)
 		})
 	}
 }
 
-// TestNumberLiteralPluralCategory documents an adaptation from fluent.js.
+// TestNumberLiteralPluralCategoryDefault documents an adaptation from fluent.js.
 // In fluent.js, `{ 1 -> [one] A *[other] B }` selects "A" because Intl plural
 // rules categorize 1 as "one" in en-US. The dependency-free default PluralRules
 // returns "other" for everything, so the default variant "B" is selected here.
@@ -91,27 +90,24 @@ func TestNumberLiteralPluralCategoryDefault(t *testing.T) {
 	src := "foo = { 1 ->\n    [one] A\n   *[other] B\n}\n"
 	b := newTestBundle(t, src)
 	got, errs := format(t, b, "foo", nil)
-	if got != "B" || len(errs) != 0 {
-		t.Errorf("default plural rules: got %q want B errs %v", got, errs)
-	}
+	assert.Equal(t, "B", got, "default plural rules select the other variant")
+	assert.Empty(t, errs)
 
 	// With a stub CLDR-like ruleset, the "one" category matches.
-	b2 := NewBundle("en-US", WithUseIsolating(false), WithPluralRules(enPluralRules{}))
+	b2 := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(enPluralRules{}))
 	b2.AddResource(mustParse(t, src))
 	got2, _ := format(t, b2, "foo", nil)
-	if got2 != "A" {
-		t.Errorf("with plural rules: got %q want A", got2)
-	}
+	assert.Equal(t, "A", got2, "with plural rules the one category matches")
 }
 
 // enPluralRules is a minimal English cardinal ruleset used to exercise the
 // pluggable PluralRules hook.
 type enPluralRules struct{}
 
-func (enPluralRules) Cardinal(_ string, n float64, _ NumberOptions) string {
+func (enPluralRules) Cardinal(_ string, n float64, _ fluent.NumberOptions) string {
 	if n == 1 {
 		return "one"
 	}
 	return "other"
 }
-func (enPluralRules) Ordinal(_ string, _ float64, _ NumberOptions) string { return "other" }
+func (enPluralRules) Ordinal(_ string, _ float64, _ fluent.NumberOptions) string { return "other" }

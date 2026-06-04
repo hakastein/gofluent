@@ -1,8 +1,11 @@
-package langneg
+package langneg_test
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/hakastein/gofluent/langneg"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // negCase is one table row: requested * available [+ default] = supported.
@@ -14,10 +17,22 @@ type negCase struct {
 	supported []string
 }
 
+// assertSupported compares a negotiation result against the expectation,
+// treating a nil result as equal to an empty []string{} so the ported
+// []string{} expectations match a nil supported result.
+func assertSupported(t *testing.T, want, got []string, msgAndArgs ...any) {
+	t.Helper()
+	if len(want) == 0 {
+		assert.Empty(t, got, msgAndArgs...)
+		return
+	}
+	assert.Equal(t, want, got, msgAndArgs...)
+}
+
 // The cases below are ported from @fluent/langneg 0.6.2's langneg_test.js (the
 // self-contained, pre-Intl.Locale algorithm this package mirrors). Empty
-// supported slices use []string{} so reflect.DeepEqual distinguishes them from
-// a nil result where it matters.
+// supported slices use []string{} so the result is distinguished from a nil
+// result where it matters.
 
 func TestNegotiateFiltering(t *testing.T) {
 	cases := []negCase{
@@ -93,59 +108,43 @@ func TestNegotiateFiltering(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := NegotiateLanguages(c.requested, c.available, c.def, Filtering)
-			if !equalStrings(got, c.supported) {
-				t.Errorf("NegotiateLanguages(%v, %v, %q) = %v, want %v",
-					c.requested, c.available, c.def, got, c.supported)
-			}
+			got := langneg.NegotiateLanguages(c.requested, c.available, c.def, langneg.Filtering)
+			assertSupported(t, c.supported, got,
+				"NegotiateLanguages(%v, %v, %q)", c.requested, c.available, c.def)
 		})
 	}
 }
 
 func TestNegotiateMatching(t *testing.T) {
-	got := NegotiateLanguages(
+	got := langneg.NegotiateLanguages(
 		[]string{"fr", "en"},
 		[]string{"en-US", "fr-FR", "en", "fr"},
-		"", Matching)
-	want := []string{"fr", "en"}
-	if !equalStrings(got, want) {
-		t.Errorf("matching = %v, want %v", got, want)
-	}
+		"", langneg.Matching)
+	assertSupported(t, []string{"fr", "en"}, got, "matching")
 }
 
 func TestNegotiateLookup(t *testing.T) {
-	got := NegotiateLanguages(
+	got := langneg.NegotiateLanguages(
 		[]string{"fr-FR", "en"},
 		[]string{"en-US", "fr-FR", "en", "fr"},
-		"en-US", Lookup)
-	want := []string{"fr-FR"}
-	if !equalStrings(got, want) {
-		t.Errorf("lookup = %v, want %v", got, want)
-	}
+		"en-US", langneg.Lookup)
+	assertSupported(t, []string{"fr-FR"}, got, "lookup")
 }
 
 func TestLookupDefaultFallback(t *testing.T) {
-	got := NegotiateLanguages([]string{"de"}, []string{"fr", "it"}, "en-US", Lookup)
-	want := []string{"en-US"}
-	if !equalStrings(got, want) {
-		t.Errorf("lookup fallback = %v, want %v", got, want)
-	}
+	got := langneg.NegotiateLanguages([]string{"de"}, []string{"fr", "it"}, "en-US", langneg.Lookup)
+	assertSupported(t, []string{"en-US"}, got, "lookup fallback")
 }
 
 func TestLookupNeedsDefaultPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("expected panic for lookup without default")
-		}
-	}()
-	NegotiateLanguages([]string{"de"}, []string{"fr"}, "", Lookup)
+	assert.Panics(t, func() {
+		langneg.NegotiateLanguages([]string{"de"}, []string{"fr"}, "", langneg.Lookup)
+	}, "expected panic for lookup without default")
 }
 
 func TestNegotiateLanguagesErrLookup(t *testing.T) {
-	_, err := NegotiateLanguagesErr([]string{"de"}, []string{"fr"}, "", Lookup)
-	if err != ErrLookupNeedsDefault {
-		t.Errorf("got err %v, want ErrLookupNeedsDefault", err)
-	}
+	_, err := langneg.NegotiateLanguagesErr([]string{"de"}, []string{"fr"}, "", langneg.Lookup)
+	require.ErrorIs(t, err, langneg.ErrLookupNeedsDefault)
 }
 
 func TestAcceptedLanguages(t *testing.T) {
@@ -162,44 +161,27 @@ func TestAcceptedLanguages(t *testing.T) {
 		{"", nil},
 	}
 	for _, c := range cases {
-		got := AcceptedLanguages(c.header)
-		if !reflect.DeepEqual(got, c.want) {
-			t.Errorf("AcceptedLanguages(%q) = %v, want %v", c.header, got, c.want)
-		}
+		got := langneg.AcceptedLanguages(c.header)
+		assert.Equalf(t, c.want, got, "AcceptedLanguages(%q)", c.header)
 	}
 }
 
 func TestLocaleParsing(t *testing.T) {
 	cases := []struct {
 		in   string
-		want Locale
+		want langneg.Locale
 	}{
-		{"en", Locale{Wellformed: true, Language: "en"}},
-		{"lij", Locale{Wellformed: true, Language: "lij"}},
-		{"en-Latn", Locale{Wellformed: true, Language: "en", Script: "Latn"}},
-		{"en-Latn-US", Locale{Wellformed: true, Language: "en", Script: "Latn", Region: "US"}},
-		{"en-Latn-US-macos", Locale{Wellformed: true, Language: "en", Script: "Latn", Region: "US", Variant: "macos"}},
-		{"en-US", Locale{Wellformed: true, Language: "en", Region: "US"}},
-		{"lij-FA-linux", Locale{Wellformed: true, Language: "lij", Region: "FA", Variant: "linux"}},
+		{"en", langneg.Locale{Wellformed: true, Language: "en"}},
+		{"lij", langneg.Locale{Wellformed: true, Language: "lij"}},
+		{"en-Latn", langneg.Locale{Wellformed: true, Language: "en", Script: "Latn"}},
+		{"en-Latn-US", langneg.Locale{Wellformed: true, Language: "en", Script: "Latn", Region: "US"}},
+		{"en-Latn-US-macos", langneg.Locale{Wellformed: true, Language: "en", Script: "Latn", Region: "US", Variant: "macos"}},
+		{"en-US", langneg.Locale{Wellformed: true, Language: "en", Region: "US"}},
+		{"lij-FA-linux", langneg.Locale{Wellformed: true, Language: "lij", Region: "FA", Variant: "linux"}},
 	}
 	for _, c := range cases {
-		got := NewLocale(c.in)
-		if !got.IsEqual(&c.want) || got.Wellformed != c.want.Wellformed {
-			t.Errorf("NewLocale(%q) = %+v, want %+v", c.in, *got, c.want)
-		}
+		got := langneg.NewLocale(c.in)
+		assert.Truef(t, got.IsEqual(&c.want), "NewLocale(%q) fields = %+v, want %+v", c.in, *got, c.want)
+		assert.Equalf(t, c.want.Wellformed, got.Wellformed, "NewLocale(%q).Wellformed", c.in)
 	}
-}
-
-// equalStrings treats nil and empty slice as equal so the ported []string{}
-// expectations match a nil supported result.
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

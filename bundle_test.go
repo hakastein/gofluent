@@ -1,88 +1,97 @@
-package fluent
+package fluent_test
 
 import (
-	"errors"
 	"testing"
+
+	fluent "github.com/hakastein/gofluent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+// Shared test helpers for the fluent_test package. They drive the package
+// through its exported API only.
+
 // mustParse parses FTL and fails the test on a hard parse error.
-func mustParse(t *testing.T, src string) *Resource {
+func mustParse(t *testing.T, src string) *fluent.Resource {
 	t.Helper()
-	res, errs := NewResource(src)
-	if len(errs) > 0 {
-		t.Fatalf("NewResource returned errors: %v", errs)
-	}
+	res, errs := fluent.NewResource(src)
+	require.Empty(t, errs, "NewResource returned errors")
 	return res
 }
 
 // newTestBundle creates a bundle with useIsolating=false and adds the resource.
-func newTestBundle(t *testing.T, src string) *Bundle {
+func newTestBundle(t *testing.T, src string) *fluent.Bundle {
 	t.Helper()
-	b := NewBundle("en-US", WithUseIsolating(false))
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 	b.AddResource(mustParse(t, src))
 	return b
 }
 
 // format is a convenience helper: get a message value and format it.
-func format(t *testing.T, b *Bundle, id string, args map[string]any) (string, []error) {
+func format(t *testing.T, b *fluent.Bundle, id string, args map[string]any) (string, []error) {
 	t.Helper()
 	msg, ok := b.GetMessage(id)
-	if !ok {
-		t.Fatalf("message %q not found", id)
-	}
+	require.Truef(t, ok, "message %q not found", id)
 	var errs []error
 	val := b.FormatPatternAny(msg.Value, args, &errs)
 	return val, errs
 }
 
+// intPtr is local test scaffolding for building NumberOptions pointer fields; it
+// references no production symbol.
+func intPtr(i int) *int { return &i }
+
+// fsi / pdi are the Unicode bidi isolation marks the bundle wraps placeables in
+// when useIsolating is enabled (FSI = U+2068, PDI = U+2069). Declared locally so
+// isolation tests assert against the public rendering without reaching into the
+// package's unexported constants.
+const (
+	fsi = "⁨"
+	pdi = "⁩"
+)
+
 func TestAddResource(t *testing.T) {
 	b := newTestBundle(t, "foo = Foo\n-bar = Bar\n")
-	if !b.HasMessage("foo") {
-		t.Error("expected message foo")
-	}
-	if _, ok := b.terms["foo"]; ok {
-		t.Error("foo should not be a term")
-	}
-	if b.HasMessage("-bar") {
-		t.Error("-bar should not be a message")
-	}
-	if _, ok := b.terms["-bar"]; !ok {
-		t.Error("expected term -bar")
-	}
+
+	assert.True(t, b.HasMessage("foo"), "expected message foo")
+	// A term must not be reachable as a public message...
+	assert.False(t, b.HasMessage("-bar"), "-bar should not be a message")
+	_, ok := b.GetMessage("-bar")
+	assert.False(t, ok, "-bar should not be retrievable as a message")
+	// ...but it must resolve when referenced as a term.
+	b.AddResource(mustParse(t, "use-bar = { -bar }\n"))
+	got, errs := format(t, b, "use-bar", nil)
+	assert.Equal(t, "Bar", got)
+	assert.Empty(t, errs)
 }
 
 func TestMessagesAndTermsShareName(t *testing.T) {
 	b := newTestBundle(t, "foo = Foo\n-bar = Bar\n")
 	b.AddResource(mustParse(t, "-foo = Private Foo\n"))
-	if !b.HasMessage("foo") {
-		t.Error("foo should remain a message")
-	}
-	if _, ok := b.terms["-foo"]; !ok {
-		t.Error("expected term -foo")
-	}
+
+	// The message foo and the term -foo coexist: foo stays a message, and the
+	// term -foo resolves independently when referenced.
+	assert.True(t, b.HasMessage("foo"), "foo should remain a message")
+
+	b.AddResource(mustParse(t, "use-foo = { -foo }\n"))
+	got, errs := format(t, b, "use-foo", nil)
+	assert.Equal(t, "Private Foo", got)
+	assert.Empty(t, errs)
 }
 
 func TestAllowOverrides(t *testing.T) {
-	b := NewBundle("en-US", WithUseIsolating(false))
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 	b.AddResource(mustParse(t, "key = Foo"))
 
 	errs := b.AddResource(mustParse(t, "key = Bar"))
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 override error, got %d", len(errs))
-	}
+	require.Len(t, errs, 1, "expected 1 override error")
 	msg, _ := b.GetMessage("key")
-	if got := b.FormatPattern(msg.Value, nil, nil); got != "Foo" {
-		t.Errorf("expected Foo, got %q", got)
-	}
+	assert.Equal(t, "Foo", b.FormatPattern(msg.Value, nil, nil))
 
 	errs = b.AddResourceOverriding(mustParse(t, "key = Bar"))
-	if len(errs) != 0 {
-		t.Fatalf("expected 0 errors with overriding, got %d", len(errs))
-	}
+	require.Empty(t, errs, "expected no errors with overriding")
 	msg, _ = b.GetMessage("key")
-	if got := b.FormatPattern(msg.Value, nil, nil); got != "Bar" {
-		t.Errorf("expected Bar, got %q", got)
-	}
+	assert.Equal(t, "Bar", b.FormatPattern(msg.Value, nil, nil))
 }
 
 func TestHasMessageBrokenEntries(t *testing.T) {
@@ -100,41 +109,21 @@ func TestHasMessageBrokenEntries(t *testing.T) {
 		"    .attr2 = {}\n"
 	b := newTestBundle(t, src)
 
-	if !b.HasMessage("foo") {
-		t.Error("foo should exist")
-	}
+	assert.True(t, b.HasMessage("foo"), "foo should exist")
 	for _, id := range []string{"-term", "missing", "-missing", "err1", "err2", "err3", "err4"} {
-		if b.HasMessage(id) {
-			t.Errorf("%q should not be a public message", id)
-		}
+		assert.Falsef(t, b.HasMessage(id), "%q should not be a public message", id)
 	}
 }
 
 func TestGetMessageReturnsValue(t *testing.T) {
 	b := newTestBundle(t, "foo = Foo\n-bar = Bar\n")
+
 	msg, ok := b.GetMessage("foo")
-	if !ok {
-		t.Fatal("expected foo")
-	}
-	if msg.ID != "foo" || msg.Value != "Foo" || len(msg.Attributes) != 0 {
-		t.Errorf("unexpected message: %+v", msg)
-	}
-	if _, ok := b.GetMessage("-bar"); ok {
-		t.Error("-bar should not be retrievable as a message")
-	}
-}
+	require.True(t, ok, "expected foo")
+	assert.Equal(t, "foo", msg.ID)
+	assert.Equal(t, "Foo", msg.Value)
+	assert.Empty(t, msg.Attributes)
 
-func isReferenceError(e error) bool {
-	var re *referenceError
-	return errors.As(e, &re)
-}
-
-func isRangeError(e error) bool {
-	var re *rangeError
-	return errors.As(e, &re)
-}
-
-func isTypeError(e error) bool {
-	var te *typeError
-	return errors.As(e, &te)
+	_, ok = b.GetMessage("-bar")
+	assert.False(t, ok, "-bar should not be retrievable as a message")
 }

@@ -1,6 +1,12 @@
-package fluent
+package fluent_test
 
-import "testing"
+import (
+	"testing"
+
+	fluent "github.com/hakastein/gofluent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 // Ported from errors_test.js and bomb_test.js.
 
@@ -9,38 +15,27 @@ func TestErrorReportingIntoArray(t *testing.T) {
 	msg, _ := b.GetMessage("foo")
 
 	var errs []error
-	val := b.FormatPattern(msg.Value, map[string]Value{}, &errs)
-	if val != "{$one} and {$two}" {
-		t.Errorf("val1 got %q", val)
-	}
-	if len(errs) != 2 || !isReferenceError(errs[0]) || !isReferenceError(errs[1]) {
-		t.Fatalf("expected 2 reference errors, got %v", errs)
-	}
+	val := b.FormatPattern(msg.Value, map[string]fluent.Value{}, &errs)
+	assert.Equal(t, "{$one} and {$two}", val)
+	require.Len(t, errs, 2, "expected 2 reference errors")
+	require.ErrorIs(t, errs[0], fluent.ErrReference)
+	require.ErrorIs(t, errs[1], fluent.ErrReference)
 
-	val = b.FormatPattern(msg.Value, map[string]Value{}, &errs)
-	if val != "{$one} and {$two}" {
-		t.Errorf("val2 got %q", val)
-	}
-	if len(errs) != 4 {
-		t.Errorf("expected 4 accumulated errors, got %d", len(errs))
-	}
+	val = b.FormatPattern(msg.Value, map[string]fluent.Value{}, &errs)
+	assert.Equal(t, "{$one} and {$two}", val)
+	require.Len(t, errs, 4, "errors accumulate across calls into the same sink")
+	require.ErrorIs(t, errs[2], fluent.ErrReference)
+	require.ErrorIs(t, errs[3], fluent.ErrReference)
 }
 
 func TestFirstErrorIsThrown(t *testing.T) {
 	b := newTestBundle(t, "foo = {$one} and {$two}\n")
 	msg, _ := b.GetMessage("foo")
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic when errs is nil")
-		}
-		fp, ok := r.(fluentPanic)
-		if !ok || !isReferenceError(fp.err) {
-			t.Fatalf("expected reference error panic, got %v", r)
-		}
-	}()
-	b.FormatPattern(msg.Value, nil, nil)
+	// With a nil error sink the first error is "thrown" (panics).
+	assert.Panics(t, func() {
+		b.FormatPattern(msg.Value, nil, nil)
+	}, "expected panic when errs is nil")
 }
 
 func TestBillionLaughs(t *testing.T) {
@@ -58,12 +53,9 @@ func TestBillionLaughs(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "lolz", nil)
-	if got != "{???}" {
-		t.Errorf("got %q want {???}", got)
-	}
-	if len(errs) != 1 || !isRangeError(errs[0]) {
-		t.Errorf("expected 1 range error, got %v", errs)
-	}
+	assert.Equal(t, "{???}", got)
+	require.Len(t, errs, 1, "expected a single range error")
+	require.ErrorIs(t, errs[0], fluent.ErrRange)
 }
 
 func TestBillionLaughsThrowsWithoutSink(t *testing.T) {
@@ -73,17 +65,11 @@ func TestBillionLaughsThrowsWithoutSink(t *testing.T) {
 		"lol3 = {lol2} {lol2} {lol2} {lol2} {lol2} {lol2} {lol2} {lol2} {lol2} {lol2}\n" +
 		"lolz = {lol3}\n"
 	b := newTestBundle(t, src)
-	msg, _ := b.GetMessage("lolz")
+	msg, ok := b.GetMessage("lolz")
+	require.True(t, ok)
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic")
-		}
-		fp, ok := r.(fluentPanic)
-		if !ok || !isRangeError(fp.err) {
-			t.Fatalf("expected range error panic, got %v", r)
-		}
-	}()
-	b.FormatPattern(msg.Value, nil, nil)
+	// With a nil error sink the range error is "thrown" (panics).
+	assert.Panics(t, func() {
+		b.FormatPattern(msg.Value, nil, nil)
+	}, "expected panic")
 }

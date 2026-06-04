@@ -1,6 +1,12 @@
-package fluent
+package fluent_test
 
-import "testing"
+import (
+	"testing"
+
+	fluent "github.com/hakastein/gofluent"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 // Ported from values_format_test.js and values_ref_test.js and patterns_test.js.
 
@@ -32,27 +38,19 @@ func TestFormattingValues(t *testing.T) {
 		{"key5", "{???}", 1},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, nil)
-		if got != tc.want {
-			t.Errorf("%s: got %q want %q", tc.id, got, tc.want)
-		}
-		if len(errs) != tc.wantErr {
-			t.Errorf("%s: got %d errors want %d (%v)", tc.id, len(errs), tc.wantErr, errs)
-		}
+		t.Run(tc.id, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, nil)
+			assert.Equal(t, tc.want, got)
+			assert.Len(t, errs, tc.wantErr)
+		})
 	}
 
 	// Attributes directly.
 	msg, _ := b.GetMessage("key5")
 	var errs []error
-	if got := b.FormatPattern(msg.Attributes["a"], nil, &errs); got != "A5" {
-		t.Errorf("key5.a got %q", got)
-	}
-	if got := b.FormatPattern(msg.Attributes["b"], nil, &errs); got != "B5" {
-		t.Errorf("key5.b got %q", got)
-	}
-	if len(errs) != 0 {
-		t.Errorf("attr format errors: %v", errs)
-	}
+	assert.Equal(t, "A5", b.FormatPattern(msg.Attributes["a"], nil, &errs))
+	assert.Equal(t, "B5", b.FormatPattern(msg.Attributes["b"], nil, &errs))
+	assert.Empty(t, errs)
 }
 
 func TestReferencingValues(t *testing.T) {
@@ -118,13 +116,11 @@ func TestReferencingValues(t *testing.T) {
 		{"ref16", "A", 1},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, nil)
-		if got != tc.want {
-			t.Errorf("%s: got %q want %q", tc.id, got, tc.want)
-		}
-		if len(errs) != tc.wantErr {
-			t.Errorf("%s: got %d errors want %d (%v)", tc.id, len(errs), tc.wantErr, errs)
-		}
+		t.Run(tc.id, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, nil)
+			assert.Equal(t, tc.want, got)
+			assert.Len(t, errs, tc.wantErr)
+		})
 	}
 }
 
@@ -142,21 +138,22 @@ func TestPatternsReferences(t *testing.T) {
 	tests := []struct {
 		id      string
 		want    string
-		wantErr bool
+		wantErr int
 	}{
-		{"ref-message", "Foo", false},
-		{"ref-term", "Bar", false},
-		{"ref-missing-message", "{missing}", true},
-		{"ref-missing-term", "{-missing}", true},
+		{"ref-message", "Foo", 0},
+		{"ref-term", "Bar", 0},
+		{"ref-missing-message", "{missing}", 1},
+		{"ref-missing-term", "{-missing}", 1},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, nil)
-		if got != tc.want {
-			t.Errorf("%s: got %q want %q", tc.id, got, tc.want)
-		}
-		if tc.wantErr && (len(errs) == 0 || !isReferenceError(errs[0])) {
-			t.Errorf("%s: expected reference error, got %v", tc.id, errs)
-		}
+		t.Run(tc.id, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, nil)
+			assert.Equal(t, tc.want, got)
+			require.Len(t, errs, tc.wantErr)
+			if tc.wantErr > 0 {
+				require.ErrorIs(t, errs[0], fluent.ErrReference, "missing references report a reference error")
+			}
+		})
 	}
 }
 
@@ -167,36 +164,33 @@ func TestNullValueReference(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	got, errs := format(t, b, "foo", nil)
-	if got != "{???}" || len(errs) != 1 {
-		t.Errorf("foo: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "{???}", got)
+	assert.Len(t, errs, 1)
 
 	msg, _ := b.GetMessage("foo")
 	var aerr []error
-	if got := b.FormatPattern(msg.Attributes["attr"], nil, &aerr); got != "Foo Attr" {
-		t.Errorf("foo.attr got %q", got)
-	}
+	assert.Equal(t, "Foo Attr", b.FormatPattern(msg.Attributes["attr"], nil, &aerr))
 
 	got, errs = format(t, b, "bar", nil)
-	if got != "{foo} Bar" || len(errs) != 1 || !isReferenceError(errs[0]) {
-		t.Errorf("bar: got %q errs %v", got, errs)
-	}
+	assert.Equal(t, "{foo} Bar", got)
+	require.Len(t, errs, 1, "referencing a value-less message reports a reference error")
+	require.ErrorIs(t, errs[0], fluent.ErrReference)
 }
 
 func TestCyclicReferences(t *testing.T) {
 	t.Run("mutual", func(t *testing.T) {
 		b := newTestBundle(t, "foo = { bar }\nbar = { foo }\n")
 		got, errs := format(t, b, "foo", nil)
-		if got != "{???}" || len(errs) == 0 || !isRangeError(errs[0]) {
-			t.Errorf("got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "{???}", got)
+		require.NotEmpty(t, errs, "a cycle reports a range error")
+		require.ErrorIs(t, errs[0], fluent.ErrRange)
 	})
 	t.Run("self", func(t *testing.T) {
 		b := newTestBundle(t, "foo = { foo }\n")
 		got, errs := format(t, b, "foo", nil)
-		if got != "{???}" || len(errs) == 0 || !isRangeError(errs[0]) {
-			t.Errorf("got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "{???}", got)
+		require.NotEmpty(t, errs, "a self-reference reports a range error")
+		require.ErrorIs(t, errs[0], fluent.ErrRange)
 	})
 	t.Run("self in member", func(t *testing.T) {
 		src := "foo =\n" +
@@ -206,13 +200,14 @@ func TestCyclicReferences(t *testing.T) {
 			"    }\n" +
 			"bar = { foo }\n"
 		b := newTestBundle(t, src)
+
 		got, errs := format(t, b, "foo", map[string]any{"sel": "a"})
-		if got != "{???}" || len(errs) == 0 || !isRangeError(errs[0]) {
-			t.Errorf("a: got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "{???}", got)
+		require.NotEmpty(t, errs, "a self-reference in the selected member reports a range error")
+		require.ErrorIs(t, errs[0], fluent.ErrRange)
+
 		got, errs = format(t, b, "foo", map[string]any{"sel": "b"})
-		if got != "Bar" || len(errs) != 0 {
-			t.Errorf("b: got %q errs %v", got, errs)
-		}
+		assert.Equal(t, "Bar", got)
+		assert.Empty(t, errs)
 	})
 }

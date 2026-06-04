@@ -12,6 +12,12 @@
 //
 // See structure_test.js, reference_test.js and util.js in the upstream
 // @fluent/syntax test directory for the exact behavior being replicated.
+//
+// This file deliberately keeps the package name `conformance` (rather than
+// `conformance_test`): the directory ships no production .go files, so Go has
+// no base package for an external `_test` variant. The suite is still
+// black-box — it drives only the exported syntax/ast API (syntax.Parse,
+// syntax.Serialize, ast.Marshal), never reaching into package internals.
 package conformance
 
 import (
@@ -26,6 +32,8 @@ import (
 
 	"github.com/hakastein/gofluent/syntax"
 	"github.com/hakastein/gofluent/syntax/ast"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -48,9 +56,7 @@ var referenceSkips = map[string]bool{
 func ftlFixtures(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read fixtures dir %s: %v", dir, err)
-	}
+	require.NoErrorf(t, err, "read fixtures dir %s", dir)
 	var names []string
 	for _, e := range entries {
 		if e.IsDir() {
@@ -70,13 +76,9 @@ func ftlFixtures(t *testing.T, dir string) []string {
 func readFixture(t *testing.T, dir, name string) (ftl string, expected []byte) {
 	t.Helper()
 	ftlBytes, err := os.ReadFile(filepath.Join(dir, name+".ftl"))
-	if err != nil {
-		t.Fatalf("read %s.ftl: %v", name, err)
-	}
+	require.NoErrorf(t, err, "read %s.ftl", name)
 	expected, err = os.ReadFile(filepath.Join(dir, name+".json"))
-	if err != nil {
-		t.Fatalf("read %s.json: %v", name, err)
-	}
+	require.NoErrorf(t, err, "read %s.json", name)
 	return string(ftlBytes), expected
 }
 
@@ -85,9 +87,7 @@ func readFixture(t *testing.T, dir, name string) (ftl string, expected []byte) {
 func toAny(t *testing.T, label string, data []byte) interface{} {
 	t.Helper()
 	var v interface{}
-	if err := json.Unmarshal(data, &v); err != nil {
-		t.Fatalf("unmarshal %s: %v", label, err)
-	}
+	require.NoErrorf(t, json.Unmarshal(data, &v), "unmarshal %s", label)
 	return v
 }
 
@@ -138,37 +138,27 @@ func firstDiff(path string, got, want interface{}) string {
 }
 
 // assertDeepEqualJSON compares two decoded JSON trees, failing with a readable
-// diff (first differing path plus both blobs) on mismatch.
+// diff (first differing path) on mismatch.
 func assertDeepEqualJSON(t *testing.T, name string, gotBytes, wantBytes []byte) {
 	t.Helper()
 	got := toAny(t, "got", gotBytes)
 	want := toAny(t, "want", wantBytes)
-	if reflect.DeepEqual(got, want) {
-		return
-	}
-	diff := firstDiff("$", got, want)
-	gotPretty, _ := json.MarshalIndent(got, "", "  ")
-	wantPretty, _ := json.MarshalIndent(want, "", "  ")
-	t.Errorf("AST mismatch for %s\nfirst diff at %s\n--- got ---\n%s\n--- want ---\n%s",
-		name, diff, gotPretty, wantPretty)
+	assert.Equalf(t, want, got, "AST mismatch for %s\nfirst diff at %s",
+		name, firstDiff("$", got, want))
 }
 
 // TestStructureFixtures mirrors structure_test.js: parse with spans ON and
 // deep-compare the marshaled AST JSON to the paired fixture.
 func TestStructureFixtures(t *testing.T) {
 	names := ftlFixtures(t, structureDir)
-	if len(names) == 0 {
-		t.Fatalf("no structure fixtures found in %s", structureDir)
-	}
+	require.NotEmptyf(t, names, "no structure fixtures found in %s", structureDir)
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			ftl, expected := readFixture(t, structureDir, name)
 
 			res := syntax.Parse(ftl) // spans ON by default
 			got, err := ast.Marshal(res, true)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
+			require.NoError(t, err, "marshal")
 			assertDeepEqualJSON(t, name, got, expected)
 		})
 	}
@@ -206,9 +196,7 @@ func blankJunkAnnotations(v interface{}) {
 // out Junk annotations on both sides, honor the skip-list, then deep-compare.
 func TestReferenceFixtures(t *testing.T) {
 	names := ftlFixtures(t, referenceDir)
-	if len(names) == 0 {
-		t.Fatalf("no reference fixtures found in %s", referenceDir)
-	}
+	require.NotEmptyf(t, names, "no reference fixtures found in %s", referenceDir)
 	for _, name := range names {
 		filename := name + ".ftl"
 		t.Run(name, func(t *testing.T) {
@@ -219,23 +207,15 @@ func TestReferenceFixtures(t *testing.T) {
 
 			res := syntax.Parse(ftl, syntax.WithSpans(false))
 			gotBytes, err := ast.Marshal(res, false)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
+			require.NoError(t, err, "marshal")
 
 			got := toAny(t, "got", gotBytes)
 			want := toAny(t, "want", expected)
 			blankJunkAnnotations(got)
 			blankJunkAnnotations(want)
 
-			if reflect.DeepEqual(got, want) {
-				return
-			}
-			diff := firstDiff("$", got, want)
-			gotPretty, _ := json.MarshalIndent(got, "", "  ")
-			wantPretty, _ := json.MarshalIndent(want, "", "  ")
-			t.Errorf("AST mismatch for %s\nfirst diff at %s\n--- got ---\n%s\n--- want ---\n%s",
-				name, diff, gotPretty, wantPretty)
+			assert.Equalf(t, want, got, "AST mismatch for %s\nfirst diff at %s",
+				name, firstDiff("$", got, want))
 		})
 	}
 }
@@ -287,10 +267,7 @@ func TestSerializerRoundtripExact(t *testing.T) {
 	for _, tc := range roundTripExact {
 		t.Run(tc.name, func(t *testing.T) {
 			got := syntax.Serialize(syntax.Parse(tc.input))
-			if got != tc.input {
-				t.Errorf("round-trip mismatch for %s\n--- got ---\n%q\n--- want ---\n%q",
-					tc.name, got, tc.input)
-			}
+			assert.Equalf(t, tc.input, got, "round-trip mismatch for %s", tc.name)
 		})
 	}
 }
@@ -306,15 +283,10 @@ func TestSerializerRoundtripIdempotent(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(structureDir, name+".ftl")
 			src, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read %s: %v", name, err)
-			}
+			require.NoErrorf(t, err, "read %s", name)
 			once := syntax.Serialize(syntax.Parse(string(src)))
 			twice := syntax.Serialize(syntax.Parse(once))
-			if once != twice {
-				t.Errorf("serializer not idempotent for %s\n--- once ---\n%q\n--- twice ---\n%q",
-					name, once, twice)
-			}
+			assert.Equalf(t, once, twice, "serializer not idempotent for %s", name)
 		})
 	}
 }

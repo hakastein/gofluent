@@ -1,9 +1,14 @@
-package plural
+package plural_test
 
 import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hakastein/gofluent/cldr/plural"
 )
 
 // sampleRow is one expanded CLDR sample: the value string (preserving its
@@ -23,45 +28,26 @@ type sampleRow struct {
 // internal/gen/samples.js (see that file to regenerate).
 func TestCLDRSamples(t *testing.T) {
 	data, err := os.ReadFile("testdata/cldr_samples.json")
-	if err != nil {
-		t.Fatalf("read samples: %v", err)
-	}
-	var rows []sampleRow
-	if err := json.Unmarshal(data, &rows); err != nil {
-		t.Fatalf("unmarshal samples: %v", err)
-	}
-	if len(rows) == 0 {
-		t.Fatal("no samples loaded")
-	}
+	require.NoError(t, err, "read samples")
 
-	var fails int
+	var rows []sampleRow
+	require.NoError(t, json.Unmarshal(data, &rows), "unmarshal samples")
+	require.NotEmpty(t, rows, "no samples loaded")
+
 	for _, r := range rows {
-		ops, err := OperandsFromString(r.Value)
-		if err != nil {
-			t.Errorf("%s %s %q: OperandsFromString: %v", r.Type, r.Locale, r.Value, err)
-			fails++
-			continue
-		}
-		var got Category
+		ops, err := plural.OperandsFromString(r.Value)
+		require.NoErrorf(t, err, "%s %s %q: OperandsFromString", r.Type, r.Locale, r.Value)
+
+		var got plural.Category
 		switch r.Type {
 		case "cardinal":
-			got = Cardinal(r.Locale, ops)
+			got = plural.Cardinal(r.Locale, ops)
 		case "ordinal":
-			got = Ordinal(r.Locale, ops)
+			got = plural.Ordinal(r.Locale, ops)
 		default:
-			t.Fatalf("unknown type %q", r.Type)
+			require.Failf(t, "unknown type", "type %q", r.Type)
 		}
-		if string(got) != r.Category {
-			fails++
-			if fails <= 50 {
-				t.Errorf("%s %s value=%q: got %q want %q (ops=%+v)",
-					r.Type, r.Locale, r.Value, got, r.Category, ops)
-			}
-		}
-	}
-	if fails > 0 {
-		t.Errorf("CLDR sample mismatches: %d / %d", fails, len(rows))
-	} else {
-		t.Logf("CLDR self-test: %d/%d samples matched", len(rows), len(rows))
+		assert.Equalf(t, r.Category, string(got),
+			"%s %s value=%q (ops=%+v)", r.Type, r.Locale, r.Value, ops)
 	}
 }

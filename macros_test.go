@@ -1,6 +1,10 @@
-package fluent
+package fluent_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 // Ported from macros_test.js (term references, parameterization, attributes).
 
@@ -10,9 +14,8 @@ func TestTermReferencesAndCalls(t *testing.T) {
 
 	for _, id := range []string{"term-ref", "term-call"} {
 		got, errs := format(t, b, id, map[string]any{})
-		if got != "Bar" || len(errs) != 0 {
-			t.Errorf("%s: got %q errs %v", id, got, errs)
-		}
+		assert.Equalf(t, "Bar", got, "%s", id)
+		assert.Emptyf(t, errs, "%s", id)
 	}
 }
 
@@ -26,24 +29,26 @@ func TestTermPassingArguments(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	tests := []struct {
+		name string
 		id   string
 		args map[string]any
 		want string
 	}{
-		{"ref-foo", map[string]any{}, "Foo {$arg}"},
-		{"ref-foo", map[string]any{"arg": 1}, "Foo {$arg}"},
-		{"call-foo-no-args", map[string]any{}, "Foo {$arg}"},
-		{"call-foo-no-args", map[string]any{"arg": 1}, "Foo {$arg}"},
-		{"call-foo-with-expected-arg", map[string]any{}, "Foo 1"},
-		{"call-foo-with-expected-arg", map[string]any{"arg": 5}, "Foo 1"},
-		{"call-foo-with-other-arg", map[string]any{}, "Foo {$arg}"},
-		{"call-foo-with-other-arg", map[string]any{"arg": 5}, "Foo {$arg}"},
+		{"ref-foo no args", "ref-foo", map[string]any{}, "Foo {$arg}"},
+		{"ref-foo with arg", "ref-foo", map[string]any{"arg": 1}, "Foo {$arg}"},
+		{"call no args", "call-foo-no-args", map[string]any{}, "Foo {$arg}"},
+		{"call no args with caller arg", "call-foo-no-args", map[string]any{"arg": 1}, "Foo {$arg}"},
+		{"call expected arg", "call-foo-with-expected-arg", map[string]any{}, "Foo 1"},
+		{"call expected arg ignores caller", "call-foo-with-expected-arg", map[string]any{"arg": 5}, "Foo 1"},
+		{"call other arg", "call-foo-with-other-arg", map[string]any{}, "Foo {$arg}"},
+		{"call other arg ignores caller", "call-foo-with-other-arg", map[string]any{"arg": 5}, "Foo {$arg}"},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, tc.args)
-		if got != tc.want || len(errs) != 0 {
-			t.Errorf("%s %v: got %q want %q errs %v", tc.id, tc.args, got, tc.want, errs)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, tc.args)
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, errs)
+		})
 	}
 }
 
@@ -77,24 +82,26 @@ func TestParameterizedTermAttributes(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	tests := []struct {
+		name string
 		id   string
 		args map[string]any
 		want string
 	}{
-		{"ref-attr", map[string]any{}, "It"},
-		{"ref-attr", map[string]any{"style": "chicago"}, "It"},
-		{"call-attr-no-args", map[string]any{}, "It"},
-		{"call-attr-no-args", map[string]any{"style": "chicago"}, "It"},
-		{"call-attr-with-expected-arg", map[string]any{}, "She"},
-		{"call-attr-with-expected-arg", map[string]any{"style": "chicago"}, "She"},
-		{"call-attr-with-other-arg", map[string]any{}, "It"},
-		{"call-attr-with-other-arg", map[string]any{"style": "chicago"}, "It"},
+		{"ref no args", "ref-attr", map[string]any{}, "It"},
+		{"ref ignores caller style", "ref-attr", map[string]any{"style": "chicago"}, "It"},
+		{"call no args", "call-attr-no-args", map[string]any{}, "It"},
+		{"call no args ignores caller style", "call-attr-no-args", map[string]any{"style": "chicago"}, "It"},
+		{"call expected arg", "call-attr-with-expected-arg", map[string]any{}, "She"},
+		{"call expected arg ignores caller", "call-attr-with-expected-arg", map[string]any{"style": "chicago"}, "She"},
+		{"call other arg", "call-attr-with-other-arg", map[string]any{}, "It"},
+		{"call other arg ignores caller style", "call-attr-with-other-arg", map[string]any{"style": "chicago"}, "It"},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, tc.args)
-		if got != tc.want || len(errs) != 0 {
-			t.Errorf("%s %v: got %q want %q errs %v", tc.id, tc.args, got, tc.want, errs)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, tc.args)
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, errs)
+		})
 	}
 }
 
@@ -110,19 +117,21 @@ func TestNestingTermReferences(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	tests := []struct {
+		name string
 		id   string
 		args map[string]any
 		want string
 	}{
-		{"ref-qux", map[string]any{}, "Foo 1"},
-		{"ref-qux", map[string]any{"arg": 5}, "Foo 1"},
-		{"call-qux-no-args", map[string]any{}, "Foo 1"},
-		{"call-qux-with-other", map[string]any{"arg": 5}, "Foo 1"},
+		{"ref no args", "ref-qux", map[string]any{}, "Foo 1"},
+		{"ref ignores caller arg", "ref-qux", map[string]any{"arg": 5}, "Foo 1"},
+		{"call no args", "call-qux-no-args", map[string]any{}, "Foo 1"},
+		{"call other arg ignores caller", "call-qux-with-other", map[string]any{"arg": 5}, "Foo 1"},
 	}
 	for _, tc := range tests {
-		got, errs := format(t, b, tc.id, tc.args)
-		if got != tc.want || len(errs) != 0 {
-			t.Errorf("%s %v: got %q want %q errs %v", tc.id, tc.args, got, tc.want, errs)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, tc.args)
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, errs)
+		})
 	}
 }
