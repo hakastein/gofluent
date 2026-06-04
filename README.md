@@ -3,6 +3,11 @@
 A Go implementation of [Project Fluent](https://projectfluent.org) — a localization
 system for natural-sounding translations.
 
+> **This is an LLM-generated codebase** (written with Claude, ported from fluent.js).
+> We don't hide that — we lean on it: correctness is pinned to the upstream Project
+> Fluent conformance fixtures and to Node's `Intl.*` golden fixtures, both checked in
+> CI-style by `go test ./...`. Read the code and the tests, not just the prose.
+
 gofluent is a port of the reference JavaScript implementation
 ([`@fluent/syntax`](https://github.com/projectfluent/fluent.js) and `@fluent/bundle`).
 Locale-aware formatting (plural rules, numbers, dates) is exposed through **pluggable
@@ -130,11 +135,10 @@ the CLDR JSON) and the Node `Intl.*` fixture dumps see one CLDR version, so ther
 host-Node version skew. To move to a newer CLDR, bump the Node image and the `cldr-*`
 versions together and re-run `make gen`.
 
-## Design
+## Contributing
 
-See [`docs/superpowers/specs/2026-06-03-gofluent-design.md`](docs/superpowers/specs/2026-06-03-gofluent-design.md)
-for the full design and the decisions behind it. CLDR formatting is self-contained
-(generated from CLDR data, matched to `Intl.*`) rather than delegated to `golang.org/x/text`.
+Architecture, conventions, and how to regenerate the CLDR data live in
+[`CLAUDE.md`](CLAUDE.md).
 
 ## License
 

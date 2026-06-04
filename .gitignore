@@ -1,6 +1,9 @@
 # Local reference checkouts used during porting (not part of the module)
 /.reference/
 
+# Claude Code local tooling — not a repository artifact
+/.claude/
+
 # Go
 *.test
 *.out
