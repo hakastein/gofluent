@@ -23,8 +23,14 @@ packages and the golden fixtures from Node's `Intl.*`, run in a pinned Docker im
 The syntax parser and serializer are verified against the upstream Project Fluent
 conformance fixtures (62/62 structure, 35/36 reference — the one skip matches fluent.js).
 The CLDR formatters are verified against `Intl.PluralRules` (100% parity),
-`Intl.NumberFormat` (100%), and `Intl.DateTimeFormat` (dateStyle/timeStyle from CLDR
-patterns; ~94% on component options) using golden fixtures dumped from Node.
+`Intl.NumberFormat` (100%), and `Intl.DateTimeFormat` using golden fixtures dumped
+from Node — covering dateStyle/timeStyle, component options, flexible day periods
+(the `dayPeriod` option / `B` field — "in the afternoon"), and time-zone names
+(specific `EDT`/`Eastern Daylight Time`, generic `ET`/`Eastern Time`, location
+`United Kingdom Time`/`Sydney Time`, and numeric `GMT±HH:mm` offsets). The residual
+gap is the two matrix locales `fa` and `th`, which default to non-Gregorian calendars
+(Persian, Buddhist) that this package does not implement; excluding those, day-period
+and zone-name resolution match Intl essentially exactly.
 
 ## Install
 
@@ -67,6 +73,10 @@ problems are appended to `errs` and rendered as fluent.js-style placeholders (e.
 
 By default placeables are wrapped in Unicode bidirectional isolation marks (FSI/PDI).
 Disable with `fluent.NewBundle("en", fluent.WithUseIsolating(false))`.
+
+A `Bundle` is safe for concurrent use: `FormatPattern`/`FormatPatternAny`, `HasMessage`,
+`GetMessage`, and the `AddResource`/`AddResourceOverriding`/`AddFunction` mutators may be
+called from multiple goroutines simultaneously.
 
 ## Locale-aware formatting
 

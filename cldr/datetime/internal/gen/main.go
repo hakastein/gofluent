@@ -37,6 +37,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // defaultCLDRData is the host fallback location of the CLDR node_modules tree,
@@ -51,6 +52,8 @@ func main() {
 	datesDir := flag.String("dates", "", "path to cldr-dates-full/main (overrides $CLDR_DATA)")
 	numbersDir := flag.String("numbers", "", "path to cldr-numbers-full/main (overrides $CLDR_DATA)")
 	coreDir := flag.String("core", "", "path to cldr-core/supplemental (overrides $CLDR_DATA)")
+	namesDir := flag.String("names", "", "path to cldr-localenames-full/main (overrides $CLDR_DATA)")
+	bcp47Path := flag.String("bcp47", "", "path to cldr-bcp47/bcp47/timezone.json (overrides $CLDR_DATA)")
 	outPath := flag.String("out", "tables_gen.go", "output Go file")
 	flag.Parse()
 
@@ -70,10 +73,29 @@ func main() {
 	if *coreDir == "" {
 		*coreDir = filepath.Join(base, "cldr-core", "supplemental")
 	}
+	if *namesDir == "" {
+		*namesDir = filepath.Join(base, "cldr-localenames-full", "main")
+	}
+	if *bcp47Path == "" {
+		*bcp47Path = filepath.Join(base, "cldr-bcp47", "bcp47", "timezone.json")
+	}
 
 	numSys := loadNumberingSystems(filepath.Join(*coreDir, "numberingSystems.json"))
 	parents := loadParentLocales(filepath.Join(*coreDir, "parentLocales.json"))
 	defaultNS := loadDefaultNumberingSystems(*numbersDir)
+	dpRules := loadDayPeriodRules(filepath.Join(*coreDir, "dayPeriods.json"))
+	zoneMeta := loadMetazoneInfo(filepath.Join(*coreDir, "metaZones.json"))
+	primaryZones := loadPrimaryZones(filepath.Join(*coreDir, "primaryZones.json"))
+
+	// Zone -> territory and the set of zones whose generic LOCATION name uses
+	// the COUNTRY (territory) display name rather than the exemplar city: a zone
+	// is "country-representative" when its territory has a single (non-deprecated)
+	// time zone OR the zone is that territory's primaryZone. Derived from the
+	// BCP-47 timezone alias table plus primaryZones.json (mirrors ICU).
+	zoneToTerritory, repTerritories := loadZoneTerritories(*bcp47Path, primaryZones)
+	// Per-locale territory display names, limited to the country-representative
+	// set so the generated table stays small.
+	territoryNames := loadTerritoryNames(*namesDir, parents, repTerritories)
 
 	locales := listLocales(*datesDir)
 	sort.Strings(locales)
@@ -93,6 +115,8 @@ func main() {
 		if d.NumberingSystem == "" {
 			d.NumberingSystem = "latn"
 		}
+		d.DayPeriodRules = resolveDayPeriodRules(dpRules, loc)
+		d.TerritoryNames = territoryNames[loc]
 		b, _ := json.Marshal(d)
 		entries = append(entries, entry{locale: loc, data: d, json: string(b)})
 	}
@@ -142,6 +166,51 @@ func main() {
 		buf.WriteString(fmt.Sprintf("\t%q: %q,\n", k, parents[k]))
 	}
 	buf.WriteString("}\n\n")
+
+	// global zone -> metazone mapping (populates the var declared in zone.go).
+	buf.WriteString("// zoneToMetazone (declared in zone.go) maps a CLDR (legacy) zone id to its\n")
+	buf.WriteString("// ordered metazone periods. Assigned here so the package still builds\n")
+	buf.WriteString("// against an older table that predates this data.\n")
+	buf.WriteString("func init() {\n")
+	buf.WriteString("\tzoneToMetazone = map[string][]metazonePeriod{\n")
+	var zKeys []string
+	for k := range zoneMeta {
+		zKeys = append(zKeys, k)
+	}
+	sort.Strings(zKeys)
+	for _, k := range zKeys {
+		buf.WriteString(fmt.Sprintf("\t\t%q: {", k))
+		for i, p := range zoneMeta[k] {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(fmt.Sprintf("{Mzone: %q, From: %d, To: %d}", p.Mzone, p.From, p.To))
+		}
+		buf.WriteString("},\n")
+	}
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tzoneToTerritory = map[string]string{\n")
+	var ztKeys []string
+	for k := range zoneToTerritory {
+		ztKeys = append(ztKeys, k)
+	}
+	sort.Strings(ztKeys)
+	for _, k := range ztKeys {
+		buf.WriteString(fmt.Sprintf("\t\t%q: %q,\n", k, zoneToTerritory[k]))
+	}
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tzoneUsesCountry = map[string]bool{\n")
+	var zcKeys []string
+	for k, v := range zoneToTerritory {
+		if repTerritories[v] {
+			zcKeys = append(zcKeys, k)
+		}
+	}
+	sort.Strings(zcKeys)
+	for _, k := range zcKeys {
+		buf.WriteString(fmt.Sprintf("\t\t%q: true,\n", k))
+	}
+	buf.WriteString("\t}\n}\n\n")
 
 	// blobs
 	buf.WriteString(fmt.Sprintf("// localeBlobs holds the %d unique locale data blobs.\n", len(blobs)))
@@ -203,7 +272,21 @@ type localeData struct {
 	Available   map[string]string `json:"avail"` // skeleton -> pattern
 
 	NumberingSystem string            `json:"ns"`
-	Zones           map[string]string `json:"tz"` // "utc.short","utc.long","gmt","gmtZero","hourPos","hourNeg"
+	Zones           map[string]string `json:"tz"` // "utc.short","utc.long","gmt","gmtZero","hourPos","hourNeg","regionFormat",...
+
+	// DayPeriodRules: flexible day-period key -> [fromMinute, beforeMinute].
+	// Exact-point rules (noon/midnight) are stored with from==before.
+	DayPeriodRules map[string][2]int `json:"dpr"`
+	// MetazoneNames: metazone id -> "<width>.<type>" -> name.
+	MetazoneNames map[string]map[string]string `json:"mzn"`
+	// ZoneOverrides: CLDR zone id -> "<width>.<type>" -> name.
+	ZoneOverrides map[string]map[string]string `json:"zov"`
+	// ExemplarCities: CLDR zone id -> localized exemplar city.
+	ExemplarCities map[string]string `json:"exc"`
+	// TerritoryNames: territory code -> localized display name, limited to the
+	// country-representative territories (single-zone or primaryZone), used by
+	// the generic-location format ("United Kingdom Time").
+	TerritoryNames map[string]string `json:"ter"`
 }
 
 func writeLocaleData(buf *bytes.Buffer, d localeData) {
@@ -224,7 +307,28 @@ func writeLocaleData(buf *bytes.Buffer, d localeData) {
 	writeStrMap(buf, "Available", d.Available)
 	buf.WriteString(fmt.Sprintf("NumberingSystem: %q, ", d.NumberingSystem))
 	writeStrMap(buf, "Zones", d.Zones)
+	writeRangeMap(buf, "DayPeriodRules", d.DayPeriodRules)
+	writeStrMapMap(buf, "MetazoneNames", d.MetazoneNames)
+	writeStrMapMap(buf, "ZoneOverrides", d.ZoneOverrides)
+	writeStrMap(buf, "ExemplarCities", d.ExemplarCities)
+	writeStrMap(buf, "TerritoryNames", d.TerritoryNames)
 	buf.WriteString("}")
+}
+
+func writeRangeMap(buf *bytes.Buffer, field string, m map[string][2]int) {
+	if len(m) == 0 {
+		return
+	}
+	buf.WriteString(field + ": map[string][2]int{")
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		buf.WriteString(fmt.Sprintf("%q: {%d, %d}, ", k, m[k][0], m[k][1]))
+	}
+	buf.WriteString("}, ")
 }
 
 func writeWidthMap(buf *bytes.Buffer, field string, m map[string][]string) {
@@ -427,8 +531,12 @@ func loadLocale(dir, loc string) (localeData, bool) {
 		},
 		AtTime:    pickStyles(flattenAtTime(g.AtTime)),
 		Available: cleanAvailable(g.DateTime.Available),
-		Zones:     zonesFor(dir, loc),
 	}
+	zd := zonesFor(dir, loc)
+	d.Zones = zd.zones
+	d.MetazoneNames = zd.metazoneNames
+	d.ZoneOverrides = zd.zoneOverrides
+	d.ExemplarCities = zd.exemplarCities
 	return d, true
 }
 
@@ -516,23 +624,45 @@ func eras(names, abbr, narrow map[string]string) map[string][]string {
 	}
 }
 
-func zonesFor(dir, loc string) map[string]string {
+// zoneData groups the per-locale zone tables emitted into localeData.
+type zoneData struct {
+	zones          map[string]string
+	metazoneNames  map[string]map[string]string
+	zoneOverrides  map[string]map[string]string
+	exemplarCities map[string]string
+}
+
+// nameWidths is the {long,short} -> {generic,standard,daylight} block shared by
+// metazone and zone entries in timeZoneNames.json.
+type nameWidths struct {
+	Long  map[string]string `json:"long"`
+	Short map[string]string `json:"short"`
+}
+
+func zonesFor(dir, loc string) zoneData {
 	var raw struct {
 		Main map[string]struct {
 			Dates struct {
 				TimeZoneNames struct {
-					HourFormat string `json:"hourFormat"`
-					GmtFormat  string `json:"gmtFormat"`
-					GmtZero    string `json:"gmtZeroFormat"`
-					Zone       map[string]map[string]struct {
-						Long  map[string]string `json:"long"`
-						Short map[string]string `json:"short"`
-					} `json:"zone"`
+					HourFormat     string                `json:"hourFormat"`
+					GmtFormat      string                `json:"gmtFormat"`
+					GmtZero        string                `json:"gmtZeroFormat"`
+					RegionFormat   string                `json:"regionFormat"`
+					RegionDaylight string                `json:"regionFormat-type-daylight"`
+					RegionStandard string                `json:"regionFormat-type-standard"`
+					FallbackFormat string                `json:"fallbackFormat"`
+					Metazone       map[string]nameWidths `json:"metazone"`
+					Zone           json.RawMessage       `json:"zone"`
 				} `json:"timeZoneNames"`
 			} `json:"dates"`
 		} `json:"main"`
 	}
-	out := map[string]string{}
+	out := zoneData{
+		zones:          map[string]string{},
+		metazoneNames:  map[string]map[string]string{},
+		zoneOverrides:  map[string]map[string]string{},
+		exemplarCities: map[string]string{},
+	}
 	if !loadJSON(filepath.Join(dir, loc, "timeZoneNames.json"), &raw) {
 		return out
 	}
@@ -541,21 +671,102 @@ func zonesFor(dir, loc string) map[string]string {
 		return out
 	}
 	z := m.Dates.TimeZoneNames
-	out["gmt"] = z.GmtFormat
-	out["gmtZero"] = z.GmtZero
+	out.zones["gmt"] = z.GmtFormat
+	out.zones["gmtZero"] = z.GmtZero
+	if z.RegionFormat != "" {
+		out.zones["regionFormat"] = z.RegionFormat
+	}
+	if z.RegionDaylight != "" {
+		out.zones["regionDaylight"] = z.RegionDaylight
+	}
+	if z.RegionStandard != "" {
+		out.zones["regionStandard"] = z.RegionStandard
+	}
+	if z.FallbackFormat != "" {
+		out.zones["fallbackFormat"] = z.FallbackFormat
+	}
 	// hourFormat is "+HH:mm;-HH:mm"
 	if parts := strings.SplitN(z.HourFormat, ";", 2); len(parts) == 2 {
-		out["hourPos"] = parts[0]
-		out["hourNeg"] = parts[1]
+		out.zones["hourPos"] = parts[0]
+		out.zones["hourNeg"] = parts[1]
 	}
-	if etc, ok := z.Zone["Etc"]; ok {
-		if utc, ok := etc["UTC"]; ok {
-			if v := utc.Short["standard"]; v != "" {
-				out["utc.short"] = v
+
+	// metazone names: flatten {long,short}{generic,standard,daylight} into
+	// "<width>.<type>" keys.
+	for mz, w := range z.Metazone {
+		if flat := flattenWidths(w); len(flat) > 0 {
+			out.metazoneNames[mz] = flat
+		}
+	}
+
+	// zone block: nested by '/'-path; collect exemplar cities, per-zone name
+	// overrides, and the UTC special-case names.
+	if len(z.Zone) > 0 {
+		var root map[string]json.RawMessage
+		if err := json.Unmarshal(z.Zone, &root); err != nil {
+			log.Fatalf("%s zone: %v", loc, err)
+		}
+		for top, v := range root {
+			walkZone(&out, top, v)
+		}
+	}
+	return out
+}
+
+// rawZoneLeaf is the leaf shape of a zone entry: an exemplar city plus optional
+// per-zone long/short name overrides.
+type rawZoneLeaf struct {
+	ExemplarCity string            `json:"exemplarCity"`
+	Long         map[string]string `json:"long"`
+	Short        map[string]string `json:"short"`
+}
+
+// walkZone recursively descends the '/'-path nested zone object, recording
+// exemplar cities and per-zone name overrides under the joined CLDR zone id.
+func walkZone(out *zoneData, prefix string, v json.RawMessage) {
+	// A leaf is an object containing "exemplarCity"/"long"/"short" (string or
+	// object values), whereas an inner node's values are themselves objects of
+	// the next path segment. Distinguish by attempting the leaf shape first and
+	// checking whether it produced anything meaningful.
+	var leaf rawZoneLeaf
+	if err := json.Unmarshal(v, &leaf); err == nil && (leaf.ExemplarCity != "" || leaf.Long != nil || leaf.Short != nil) {
+		zid := prefix
+		if leaf.ExemplarCity != "" {
+			out.exemplarCities[zid] = leaf.ExemplarCity
+		}
+		if flat := flattenWidths(nameWidths{Long: leaf.Long, Short: leaf.Short}); len(flat) > 0 {
+			out.zoneOverrides[zid] = flat
+		}
+		// UTC special-case names feed the existing utc.short/utc.long path.
+		if zid == "Etc/UTC" {
+			if v := leaf.Short["standard"]; v != "" {
+				out.zones["utc.short"] = v
 			}
-			if v := utc.Long["standard"]; v != "" {
-				out["utc.long"] = v
+			if v := leaf.Long["standard"]; v != "" {
+				out.zones["utc.long"] = v
 			}
+		}
+		return
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(v, &obj); err != nil {
+		return
+	}
+	for k, child := range obj {
+		walkZone(out, prefix+"/"+k, child)
+	}
+}
+
+// flattenWidths converts a {long,short}{generic,standard,daylight} block into
+// flat "<width>.<type>" keys, keeping only the sub-keys CLDR actually provides.
+func flattenWidths(w nameWidths) map[string]string {
+	out := map[string]string{}
+	for _, typ := range []string{"generic", "standard", "daylight"} {
+		if v, ok := w.Long[typ]; ok && v != "" {
+			out["long."+typ] = v
+		}
+		if v, ok := w.Short[typ]; ok && v != "" {
+			out["short."+typ] = v
 		}
 	}
 	return out
@@ -590,6 +801,315 @@ func loadParentLocales(path string) map[string]string {
 	}
 	loadJSON(path, &raw)
 	return raw.Supplemental.ParentLocales.ParentLocale
+}
+
+// ---- day period rules ----
+
+type rawDayPeriodRule struct {
+	From   string `json:"_from"`
+	Before string `json:"_before"`
+	At     string `json:"_at"`
+}
+
+// loadDayPeriodRules reads supplemental/dayPeriods.json -> dayPeriodRuleSet,
+// keyed by locale (CLDR uses '-' form). Values map a period key to its
+// [fromMinute, beforeMinute] (with from==before for exact-point _at rules).
+func loadDayPeriodRules(path string) map[string]map[string][2]int {
+	var raw struct {
+		Supplemental struct {
+			DayPeriodRuleSet map[string]map[string]rawDayPeriodRule `json:"dayPeriodRuleSet"`
+		} `json:"supplemental"`
+	}
+	loadJSON(path, &raw)
+	out := map[string]map[string][2]int{}
+	for loc, rules := range raw.Supplemental.DayPeriodRuleSet {
+		inner := map[string][2]int{}
+		for key, r := range rules {
+			if r.At != "" {
+				m := hhmmToMinutes(r.At)
+				inner[key] = [2]int{m, m}
+				continue
+			}
+			inner[key] = [2]int{hhmmToMinutes(r.From), hhmmToMinutes(r.Before)}
+		}
+		out[loc] = inner
+	}
+	return out
+}
+
+// resolveDayPeriodRules finds the rule set for a locale, walking the simple
+// truncation fallback (e.g. "en-GB" -> "en"). The runtime resolves locale data
+// via the same fallback chain, so storing the resolved rules per locale keeps
+// the blob self-contained (and lets dedup collapse identical ones).
+func resolveDayPeriodRules(all map[string]map[string][2]int, loc string) map[string][2]int {
+	cur := loc
+	for cur != "" {
+		if r, ok := all[cur]; ok {
+			return r
+		}
+		i := strings.LastIndexByte(cur, '-')
+		if i < 0 {
+			break
+		}
+		cur = cur[:i]
+	}
+	return all["und"]
+}
+
+// hhmmToMinutes converts "HH:mm" to minutes since 00:00. CLDR uses "24:00" for
+// the end of day; we clamp it to 1440.
+func hhmmToMinutes(s string) int {
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	h, _ := strconv.Atoi(parts[0])
+	m, _ := strconv.Atoi(parts[1])
+	return h*60 + m
+}
+
+// ---- zone -> metazone mapping ----
+
+type genMetazonePeriod struct {
+	Mzone string
+	From  int64
+	To    int64
+}
+
+// loadMetazoneInfo reads supplemental/metaZones.json -> metazoneInfo.timezone,
+// flattening the nested-by-'/'-path object into a flat zone-id -> ordered
+// periods map. _from/_to ("YYYY-MM-DD HH:MM" UTC) become Unix seconds (0 when
+// open-ended).
+func loadMetazoneInfo(path string) map[string][]genMetazonePeriod {
+	var raw struct {
+		Supplemental struct {
+			MetaZones struct {
+				MetazoneInfo struct {
+					Timezone json.RawMessage `json:"timezone"`
+				} `json:"metazoneInfo"`
+			} `json:"metaZones"`
+		} `json:"supplemental"`
+	}
+	loadJSON(path, &raw)
+	out := map[string][]genMetazonePeriod{}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw.Supplemental.MetaZones.MetazoneInfo.Timezone, &root); err != nil {
+		log.Fatalf("metaZones timezone: %v", err)
+	}
+	for top, v := range root {
+		walkMetazone(out, top, v)
+	}
+	return out
+}
+
+// metazoneUse is the leaf shape: a list of {usesMetazone:{...}} entries.
+type metazoneUse struct {
+	UsesMetazone struct {
+		Mzone string `json:"_mzone"`
+		From  string `json:"_from"`
+		To    string `json:"_to"`
+	} `json:"usesMetazone"`
+}
+
+// walkMetazone recursively descends the '/'-path nested object. A node is a
+// leaf (an array of usesMetazone entries) or an inner object whose keys are the
+// next path segment.
+func walkMetazone(out map[string][]genMetazonePeriod, prefix string, v json.RawMessage) {
+	trimmed := bytes.TrimSpace(v)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var uses []metazoneUse
+		if err := json.Unmarshal(trimmed, &uses); err != nil {
+			log.Fatalf("metazone leaf %s: %v", prefix, err)
+		}
+		periods := make([]genMetazonePeriod, 0, len(uses))
+		for _, u := range uses {
+			periods = append(periods, genMetazonePeriod{
+				Mzone: u.UsesMetazone.Mzone,
+				From:  metazoneTime(u.UsesMetazone.From),
+				To:    metazoneTime(u.UsesMetazone.To),
+			})
+		}
+		out[prefix] = periods
+		return
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		log.Fatalf("metazone node %s: %v", prefix, err)
+	}
+	for k, child := range obj {
+		walkMetazone(out, prefix+"/"+k, child)
+	}
+}
+
+// metazoneTime parses "YYYY-MM-DD HH:MM" (UTC) to Unix seconds, 0 when empty.
+func metazoneTime(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02 15:04", s)
+	if err != nil {
+		log.Fatalf("metazone time %q: %v", s, err)
+	}
+	return t.Unix()
+}
+
+// ---- generic-location data (zone -> territory, primary zones, territory names) ----
+
+func loadPrimaryZones(path string) map[string]string {
+	var raw struct {
+		Supplemental struct {
+			PrimaryZones map[string]string `json:"primaryZones"`
+		} `json:"supplemental"`
+	}
+	loadJSON(path, &raw)
+	out := map[string]string{}
+	for terr, zone := range raw.Supplemental.PrimaryZones {
+		if zone != "" {
+			out[terr] = zone
+		}
+	}
+	return out
+}
+
+// loadZoneTerritories reads the BCP-47 time-zone alias table
+// (cldr-bcp47/bcp47/timezone.json) and returns (a) a CLDR zone id -> territory
+// map (every IANA alias of a non-deprecated key maps to the key's territory,
+// which is its two-letter prefix) and (b) the set of "country-representative"
+// territories: those with a single non-deprecated zone, plus every territory
+// that names a primaryZone. Etc/ and Unknown aliases are skipped (they never
+// reach the generic-location format).
+func loadZoneTerritories(path string, primary map[string]string) (map[string]string, map[string]bool) {
+	var raw struct {
+		Keyword struct {
+			U struct {
+				TZ map[string]json.RawMessage `json:"tz"`
+			} `json:"u"`
+		} `json:"keyword"`
+	}
+	loadJSON(path, &raw)
+
+	zoneToTerritory := map[string]string{}
+	zonesPerTerritory := map[string]int{}
+	for key, rawVal := range raw.Keyword.U.TZ {
+		// Meta entries (_description, _alias) are plain strings; skip them.
+		var obj struct {
+			Alias      string `json:"_alias"`
+			Deprecated bool   `json:"_deprecated"`
+		}
+		if err := json.Unmarshal(rawVal, &obj); err != nil {
+			continue // string-valued meta key
+		}
+		if obj.Deprecated || obj.Alias == "" || len(key) < 2 {
+			continue
+		}
+		terr := strings.ToUpper(key[:2])
+		aliases := strings.Fields(obj.Alias)
+		hasIANA := false
+		for _, a := range aliases {
+			// IANA zone ids contain a '/'. Skip Etc/* and Unknown placeholders;
+			// abbreviations (EST5EDT, PRC, GB) without '/' are not IANA ids.
+			if !strings.Contains(a, "/") {
+				continue
+			}
+			if strings.HasPrefix(a, "Etc/") || a == "Factory" {
+				continue
+			}
+			zoneToTerritory[a] = terr
+			hasIANA = true
+		}
+		if hasIANA {
+			zonesPerTerritory[terr]++
+		}
+	}
+
+	repTerritories := map[string]bool{}
+	for terr, n := range zonesPerTerritory {
+		if n == 1 {
+			repTerritories[terr] = true
+		}
+	}
+	for terr := range primary {
+		repTerritories[terr] = true
+	}
+	return zoneToTerritory, repTerritories
+}
+
+// loadTerritoryNames reads cldr-localenames-full territories.json for every
+// locale and returns, per locale, the display names of the country-representative
+// territories (resolved through the parentLocale + truncation fallback so
+// e.g. en-GB inherits en). Limiting to the representative set keeps the table
+// small; these are the only territories the generic-location format can use.
+func loadTerritoryNames(dir string, parents map[string]string, rep map[string]bool) map[string]map[string]string {
+	// Load every locale's raw territory map once.
+	rawByLocale := map[string]map[string]string{}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		loc := e.Name()
+		var raw struct {
+			Main map[string]struct {
+				LocaleDisplayNames struct {
+					Territories map[string]string `json:"territories"`
+				} `json:"localeDisplayNames"`
+			} `json:"main"`
+		}
+		if !loadJSON(filepath.Join(dir, loc, "territories.json"), &raw) {
+			continue
+		}
+		if m, ok := raw.Main[loc]; ok {
+			rawByLocale[loc] = m.LocaleDisplayNames.Territories
+		}
+	}
+
+	resolve := func(loc, terr string) string {
+		cur := loc
+		seen := map[string]bool{}
+		for cur != "" && !seen[cur] {
+			seen[cur] = true
+			if m, ok := rawByLocale[cur]; ok {
+				if v, ok := m[terr]; ok && v != "" {
+					return v
+				}
+			}
+			if p, ok := parents[cur]; ok {
+				cur = p
+				continue
+			}
+			if i := strings.LastIndexByte(cur, '-'); i >= 0 {
+				cur = cur[:i]
+				continue
+			}
+			break
+		}
+		// Ultimate fallback to root, then en.
+		for _, fb := range []string{"root", "en"} {
+			if m, ok := rawByLocale[fb]; ok {
+				if v, ok := m[terr]; ok && v != "" {
+					return v
+				}
+			}
+		}
+		return ""
+	}
+
+	out := map[string]map[string]string{}
+	for loc := range rawByLocale {
+		names := map[string]string{}
+		for terr := range rep {
+			if v := resolve(loc, terr); v != "" {
+				names[terr] = v
+			}
+		}
+		if len(names) > 0 {
+			out[loc] = names
+		}
+	}
+	return out
 }
 
 // icuNumberingOverrides lists the locales whose default numbering system in

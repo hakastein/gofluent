@@ -16,6 +16,23 @@ type formatCtx struct {
 	// digits, which ICU does when the requested clock (12/24) is not the
 	// locale's preferred one.
 	padNumericHour bool
+	// zoneNoSecPad mirrors an ICU quirk: a "numeric" hour rendered by a 24-hour
+	// pattern (HH) that also carries a zone field but NO seconds field is kept
+	// padded to two digits (e.g. de "09:07 UTC"), whereas the same request
+	// without the zone — or with seconds — is unpadded ("9:07", "9:07:02 UTC").
+	zoneNoSecPad bool
+	// zoneID is the CLDR (legacy) zone key for the requested IANA time zone,
+	// used to look up metazone / zone-name / territory data. Empty when no zone
+	// was given.
+	zoneID string
+	// canonicalZone is the canonical IANA id as requested (before the
+	// legacy-alias translation), used to derive an exemplar city when CLDR has
+	// no explicit one (e.g. "America/New_York" -> "New York").
+	canonicalZone string
+	// zoneObservesDST records whether the requested zone observes daylight
+	// saving anywhere in the surrounding year. ICU resolves a LONG generic name
+	// to the zone's standard name when the zone never observes DST.
+	zoneObservesDST bool
 }
 
 // num formats an integer with the locale's numbering-system digits, zero-padded
@@ -98,8 +115,8 @@ func (c *formatCtx) field(ch rune, count int, t time.Time) string {
 		return c.weekday(ch, count, t)
 	case 'a', 'b': // am/pm (b also handles noon/midnight)
 		return c.dayPeriod(ch, count, t)
-	case 'B': // flexible day period; approximate with am/pm tables
-		return c.dayPeriod('a', count, t)
+	case 'B': // flexible day period (morning1/afternoon1/evening1/night1/noon)
+		return c.flexDayPeriod(count, t)
 	case 'h': // hour 1-12
 		h := t.Hour() % 12
 		if h == 0 {
@@ -163,8 +180,8 @@ func (c *formatCtx) era(count int, t time.Time) string {
 
 func (c *formatCtx) year(count int, t time.Time) string {
 	y := t.Year()
-	if y < 0 {
-		y = -y + 1 // proleptic: year 0 -> 1 BC etc.; CLDR uses absolute era year
+	if y <= 0 {
+		y = -y + 1 // proleptic: year 0 -> 1 BC, -1 -> 2 BC; CLDR uses absolute era year
 	}
 	if count == 2 {
 		return c.num(y%100, 2)
@@ -210,9 +227,12 @@ func (c *formatCtx) weekday(ch rune, count int, t time.Time) string {
 		local := wd + 1
 		return c.num(local, count)
 	}
+	// CLDR widths by count are identical for E (format) and e/c (the e/c
+	// numeric forms are handled above at count<=2): 6+ short, 5 narrow, 4 wide,
+	// else abbreviated.
 	var width string
 	switch {
-	case count >= 6 || (ch != 'E' && count == 5):
+	case count >= 6:
 		width = "short"
 	case count == 5:
 		width = "narrow"
@@ -220,18 +240,6 @@ func (c *formatCtx) weekday(ch rune, count int, t time.Time) string {
 		width = "wide"
 	default:
 		width = "abbreviated"
-	}
-	if ch == 'E' {
-		switch {
-		case count >= 6:
-			width = "short"
-		case count == 5:
-			width = "narrow"
-		case count == 4:
-			width = "wide"
-		default:
-			width = "abbreviated"
-		}
 	}
 	table := c.ld.DaysFormat
 	if ch == 'c' {
@@ -268,18 +276,19 @@ func (c *formatCtx) dayPeriod(ch rune, count int, t time.Time) string {
 	}
 	table := c.ld.DayPeriodsFmt
 	key := "am"
-	h, m := t.Hour(), t.Minute()
+	h, m, s, ns := t.Hour(), t.Minute(), t.Second(), t.Nanosecond()
 	if h >= 12 {
 		key = "pm"
 	}
-	// 'b' uses midnight/noon at exact times.
-	if ch == 'b' {
-		if h == 0 && m == 0 {
+	// 'b' uses midnight/noon, but only at the exact instant (matching Intl,
+	// which requires zero minutes/seconds/nanoseconds).
+	if ch == 'b' && m == 0 && s == 0 && ns == 0 {
+		if h == 0 {
 			if v := lookupPeriod(table, width, "midnight"); v != "" {
 				return v
 			}
 		}
-		if h == 12 && m == 0 {
+		if h == 12 {
 			if v := lookupPeriod(table, width, "noon"); v != "" {
 				return v
 			}
@@ -287,6 +296,92 @@ func (c *formatCtx) dayPeriod(ch rune, count int, t time.Time) string {
 	}
 	if v := lookupPeriod(table, width, key); v != "" {
 		return v
+	}
+	return ""
+}
+
+// flexDayPeriod renders the flexible day-period field 'B'. It selects the
+// locale's day-period key (morning1/afternoon1/evening1/night1, plus noon at
+// the exact noon instant) whose rule range contains t's wall-clock time, then
+// looks that key up in the format day-period names at the width implied by the
+// field count (B/BB/BBB -> abbreviated, BBBB -> wide, BBBBB -> narrow). When no
+// rule matches or the name is missing it falls back to the am/pm 'b' behaviour.
+//
+// Effective minute/second resolution mirrors Intl: the day period is evaluated
+// at the precision the formatter displays. When the request shows an hour but
+// no minute, the minute/second are treated as zero (so e.g. 12:30 with an
+// hour-only request resolves to noon, exactly as Intl does).
+func (c *formatCtx) flexDayPeriod(count int, t time.Time) string {
+	rules := c.ld.DayPeriodRules
+	if len(rules) == 0 {
+		return c.dayPeriod('a', count, t)
+	}
+	width := "abbreviated"
+	switch {
+	case count >= 5:
+		width = "narrow"
+	case count == 4:
+		width = "wide"
+	}
+	// DayPeriod option width overrides the field-count width.
+	switch c.opts.DayPeriod {
+	case "narrow":
+		width = "narrow"
+	case "short":
+		width = "abbreviated"
+	case "long":
+		width = "wide"
+	}
+
+	h := t.Hour()
+	m, s, ns := t.Minute(), t.Second(), t.Nanosecond()
+	// Effective precision: if minute is not part of the request, Intl evaluates
+	// the period as if minute/second were zero (truncate to the hour).
+	if c.opts.Minute == "" && c.opts.Second == "" && c.opts.FractionalSecondDigits == nil {
+		m, s, ns = 0, 0, 0
+	}
+
+	table := c.ld.DayPeriodsFmt
+	// Exact noon takes priority. (Intl never emits "midnight" for the flexible
+	// period in practice — a wrapping night/evening rule wins at 00:00 — so we
+	// deliberately do NOT special-case midnight here.)
+	if h == 12 && m == 0 && s == 0 && ns == 0 {
+		if v := lookupPeriod(table, width, "noon"); v != "" {
+			return v
+		}
+	}
+
+	mins := h*60 + m
+	if key := matchDayPeriodRule(rules, mins); key != "" {
+		if v := lookupPeriod(table, width, key); v != "" {
+			return v
+		}
+	}
+	// Fallback: am/pm.
+	return c.dayPeriod('a', count, t)
+}
+
+// matchDayPeriodRule returns the range day-period key (morning1/afternoon1/
+// evening1/night1/...) whose half-open range [from,before) contains mins
+// (minutes since 00:00). Ranges may wrap past midnight (from > before). The
+// exact-point rules (noon/midnight, stored as from==before) are skipped here;
+// noon is handled separately by the caller.
+func matchDayPeriodRule(rules map[string][2]int, mins int) string {
+	for key, r := range rules {
+		from, before := r[0], r[1]
+		if from == before {
+			continue // exact-point rule (noon/midnight): handled elsewhere
+		}
+		if from < before {
+			if mins >= from && mins < before {
+				return key
+			}
+		} else {
+			// wrapping range, e.g. night1 21:00 -> 06:00.
+			if mins >= from || mins < before {
+				return key
+			}
+		}
 	}
 	return ""
 }
@@ -355,7 +450,7 @@ func (c *formatCtx) zone(ch rune, count int, t time.Time) string {
 	isUTC := off == 0 && (name == "UTC" || name == "" || strings.EqualFold(c.opts.TimeZone, "UTC") || strings.EqualFold(c.opts.TimeZone, "Etc/UTC"))
 
 	switch ch {
-	case 'z', 'v', 'V': // specific / generic non-location name
+	case 'z': // specific non-location name (standard/daylight)
 		long := count >= 4
 		if isUTC {
 			if long {
@@ -368,8 +463,27 @@ func (c *formatCtx) zone(ch rune, count int, t time.Time) string {
 				}
 			}
 		}
-		// fallback to GMT offset
-		return c.gmtOffset(off, z, false)
+		if v := c.specificZoneName(t, long); v != "" {
+			return v
+		}
+		return c.gmtOffset(off, z, count < 4)
+	case 'v', 'V': // generic non-location name
+		long := count >= 4
+		if isUTC {
+			if long {
+				if v := z["utc.long"]; v != "" {
+					return v
+				}
+			} else {
+				if v := z["utc.short"]; v != "" {
+					return v
+				}
+			}
+		}
+		if v := c.genericZoneName(t, long); v != "" {
+			return v
+		}
+		return c.gmtOffset(off, z, count < 4)
 	case 'O': // localized GMT
 		return c.gmtOffset(off, z, count < 4)
 	case 'Z': // ISO8601 basic / extended
@@ -396,7 +510,7 @@ func (c *formatCtx) gmtOffset(off int, z map[string]string, short bool) string {
 	h := a / 3600
 	m := (a % 3600) / 60
 	pat := z[sign]
-	body := formatHourPattern(pat, h, m, short)
+	body := c.localizeDigits(formatHourPattern(pat, h, m, short))
 	gmt := z["gmt"]
 	if gmt == "" {
 		gmt = "GMT{0}"
@@ -404,37 +518,144 @@ func (c *formatCtx) gmtOffset(off int, z map[string]string, short bool) string {
 	return strings.Replace(gmt, "{0}", body, 1)
 }
 
-// formatHourPattern fills a CLDR hourFormat half like "+HH:mm".
-func formatHourPattern(pat string, h, m int, short bool) string {
+// localizeDigits maps ASCII digits in s to the locale's numbering-system
+// glyphs (e.g. fa's "−4" -> "−۴"). Non-decimal numbering systems are left
+// untouched.
+func (c *formatCtx) localizeDigits(s string) string {
+	if len(c.digits) != 10 || (c.digits[0] == '0' && c.digits[9] == '9') {
+		return s
+	}
 	var b strings.Builder
-	runes := []rune(pat)
-	for i := 0; i < len(runes); {
-		ch := runes[i]
-		if ch == 'H' || ch == 'm' {
-			j := i
-			for j < len(runes) && runes[j] == ch {
-				j++
-			}
-			cnt := j - i
-			val := h
-			if ch == 'm' {
-				val = m
-			}
-			if short && ch == 'H' {
-				cnt = 1
-			}
-			s := strconv.Itoa(val)
-			for len(s) < cnt {
-				s = "0" + s
-			}
-			b.WriteString(s)
-			i = j
-			continue
+	for _, ch := range s {
+		if ch >= '0' && ch <= '9' {
+			b.WriteRune(c.digits[ch-'0'])
+		} else {
+			b.WriteRune(ch)
 		}
-		b.WriteRune(ch)
-		i++
 	}
 	return b.String()
+}
+
+// formatHourPattern fills a CLDR hourFormat half like "+HH:mm". For the short
+// (shortOffset / localized-GMT "O") form, ICU does not zero-pad the hour and
+// drops the minutes (and their separator) when the offset has no minute part:
+// "GMT-4", "GMT+5:30". The long form always keeps "+HH:mm".
+func formatHourPattern(pat string, h, m int, short bool) string {
+	runes := []rune(pat)
+	// Locate the end of the hour run and the start of the minute field so the
+	// short form can drop the minutes together with their separator literal
+	// (e.g. the ":" in "+HH:mm") when m == 0.
+	hEnd, mStart := -1, -1
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == 'H' {
+			hEnd = i + 1
+		}
+		if runes[i] == 'm' {
+			mStart = i
+			break
+		}
+	}
+	emit := func(seg []rune) string {
+		var b strings.Builder
+		for i := 0; i < len(seg); {
+			ch := seg[i]
+			if ch == 'H' || ch == 'm' {
+				j := i
+				for j < len(seg) && seg[j] == ch {
+					j++
+				}
+				cnt := j - i
+				val := h
+				if ch == 'm' {
+					val = m
+				}
+				if ch == 'H' {
+					if short {
+						cnt = 1
+					} else if cnt < 2 {
+						// The long localized-GMT form (longOffset / OOOO) always uses a
+						// two-digit hour, regardless of the locale hourFormat's own width
+						// (e.g. cs "-H:mm" still renders "GMT-05:00").
+						cnt = 2
+					}
+				}
+				s := strconv.Itoa(val)
+				for len(s) < cnt {
+					s = "0" + s
+				}
+				b.WriteString(s)
+				i = j
+				continue
+			}
+			b.WriteRune(ch)
+			i++
+		}
+		return b.String()
+	}
+	if mStart < 0 {
+		return emit(runes)
+	}
+	if short && m == 0 && hEnd >= 0 {
+		// Drop the separator + minutes; keep only sign + hour.
+		return emit(runes[:hEnd])
+	}
+	return emit(runes)
+}
+
+// normalizeZoneSeparator collapses a comma-bearing separator literal that sits
+// immediately adjacent to a zone field (z/Z/O/v/V/X/x run) into a single space.
+// CLDR keeps only generic zone availableFormats, and a few locales join them
+// with ", " (e.g. cs "H:mm, vvvv"); Intl uses a plain space when the zone is a
+// specific or offset name. Only the literal touching the zone run is rewritten,
+// so the rest of the pattern is untouched.
+func normalizeZoneSeparator(pattern string) string {
+	runes := []rune(pattern)
+	n := len(runes)
+	// Find the zone run.
+	zStart, zEnd := -1, -1
+	inQuote := false
+	for i := 0; i < n; i++ {
+		ch := runes[i]
+		if ch == '\'' {
+			inQuote = !inQuote
+			continue
+		}
+		if inQuote {
+			continue
+		}
+		if fieldClass(ch) == 'z' {
+			if zStart < 0 {
+				zStart = i
+			}
+			zEnd = i
+		}
+	}
+	if zStart < 0 {
+		return pattern
+	}
+	// Separator before the zone: literal run ending at zStart.
+	if zStart > 0 {
+		j := zStart - 1
+		for j >= 0 && !isPatternLetter(runes[j]) && runes[j] != '\'' {
+			j--
+		}
+		sep := string(runes[j+1 : zStart])
+		if strings.Contains(sep, ",") {
+			return string(runes[:j+1]) + " " + string(runes[zStart:])
+		}
+	}
+	// Separator after the zone: literal run starting at zEnd+1.
+	if zEnd+1 < n {
+		j := zEnd + 1
+		for j < n && !isPatternLetter(runes[j]) && runes[j] != '\'' {
+			j++
+		}
+		sep := string(runes[zEnd+1 : j])
+		if strings.Contains(sep, ",") {
+			return string(runes[:zEnd+1]) + " " + string(runes[j:])
+		}
+	}
+	return pattern
 }
 
 func isoOffset(off, count int) string {

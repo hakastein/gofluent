@@ -5,6 +5,8 @@
   "dependencies": {
     "cldr-core": "46.0.0",
     "cldr-numbers-full": "46.0.0",
-    "cldr-dates-full": "46.0.0"
+    "cldr-dates-full": "46.0.0",
+    "cldr-localenames-full": "46.0.0",
+    "cldr-bcp47": "46.0.0"
   }
 }

@@ -48,6 +48,16 @@ func (c *formatCtx) buildSkeleton() string {
 	case "narrow":
 		b.WriteString("EEEEE")
 	}
+	// dayPeriod (flexible "B" field). It is only meaningful with a 12-hour
+	// clock: Intl honors it when the resolved hour cycle is 12-hour, and drops
+	// it for 24-hour locales (which keep their plain hour pattern). With no hour
+	// requested the period is always rendered, so we emit B in that case too and
+	// let the matcher / a synthesized bare-B pattern handle it.
+	if o.DayPeriod != "" {
+		if o.Hour == "" || c.hourLetter() == "h" {
+			b.WriteString(dayPeriodSkel(o.DayPeriod))
+		}
+	}
 	// hour: pick h vs H based on hour cycle.
 	if o.Hour != "" {
 		hl := c.hourLetter()
@@ -87,6 +97,19 @@ func (c *formatCtx) buildSkeleton() string {
 		b.WriteString("vvvv")
 	}
 	return b.String()
+}
+
+// dayPeriodSkel maps the dayPeriod option width to a B-run length: short ->
+// "B" (abbreviated), long -> "BBBB" (wide), narrow -> "BBBBB".
+func dayPeriodSkel(v string) string {
+	switch v {
+	case "long":
+		return "BBBB"
+	case "narrow":
+		return "BBBBB"
+	default: // "short"
+		return "B"
+	}
 }
 
 func eraSkel(v string) string {
@@ -198,6 +221,12 @@ func (c *formatCtx) applyHourCycle(pattern string) string {
 			} else {
 				nl = 'H'
 			}
+			// Pad to two digits when forcing the locale's non-preferred clock
+			// (padNumericHour); ICU keeps the hour padded in that case even though
+			// the source pattern used a single (unpadded) hour letter.
+			if c.padNumericHour && cnt < 2 {
+				cnt = 2
+			}
 			for k := 0; k < cnt; k++ {
 				b.WriteRune(nl)
 			}
@@ -209,7 +238,7 @@ func (c *formatCtx) applyHourCycle(pattern string) string {
 	}
 	out := b.String()
 	if want12 {
-		out = ensureDayPeriod(out)
+		out = c.ensureDayPeriod(out)
 	} else {
 		out = removeDayPeriod(out)
 	}
@@ -217,15 +246,18 @@ func (c *formatCtx) applyHourCycle(pattern string) string {
 }
 
 // ensureDayPeriod adds an "a" field next to the hour if the 12-hour pattern is
-// missing one (e.g. converting H -> h). It mirrors Intl behaviour of appending
-// the period using the locale's hm available format when possible.
-func ensureDayPeriod(pattern string) string {
+// missing one (e.g. converting H -> h). The period's position and separator are
+// taken from the locale's native 12-hour available format (hms/hm/h), so
+// languages that place the period BEFORE the hour (e.g. zh "ah:mm:ss",
+// ja "aK:mm:ss") are rendered correctly instead of textually splicing " a"
+// after the hour.
+func (c *formatCtx) ensureDayPeriod(pattern string) string {
 	if strings.ContainsAny(stripQuotes(pattern), "aAbB") {
 		return pattern
 	}
-	// Insert " a" after the last hour run.
 	runes := []rune(pattern)
-	last := -1
+	// Locate the (single, converted) hour run.
+	start, end := -1, -1
 	inQuote := false
 	for i := 0; i < len(runes); i++ {
 		if runes[i] == '\'' {
@@ -233,18 +265,81 @@ func ensureDayPeriod(pattern string) string {
 			continue
 		}
 		if !inQuote && runes[i] == 'h' {
-			last = i
+			if start < 0 {
+				start = i
+			}
+			end = i
 		}
 	}
-	if last < 0 {
+	if start < 0 {
 		return pattern
 	}
-	// find end of the hour run
-	end := last
-	for end+1 < len(runes) && runes[end+1] == 'h' {
-		end++
+	prefix, sep := c.periodAffix()
+	if prefix {
+		return string(runes[:start]) + "a" + sep + string(runes[start:])
 	}
-	return string(runes[:end+1]) + " a" + string(runes[end+1:])
+	return string(runes[:end+1]) + sep + "a" + string(runes[end+1:])
+}
+
+// periodAffix inspects the locale's native 12-hour available format to learn
+// whether the day period precedes (prefix) or follows the hour, and which
+// literal separates them. It falls back to a trailing " a" (the English
+// convention) when no usable 12-hour format is available.
+func (c *formatCtx) periodAffix() (prefix bool, sep string) {
+	for _, skel := range []string{"hms", "hm", "h"} {
+		pat := c.ld.Available[skel]
+		if pat == "" {
+			continue
+		}
+		if p, s, ok := scanPeriodAffix(pat); ok {
+			return p, s
+		}
+	}
+	return false, " "
+}
+
+// scanPeriodAffix parses a native 12-hour pattern and returns the day period's
+// placement relative to the hour field plus the literal text between them.
+func scanPeriodAffix(pat string) (prefix bool, sep string, ok bool) {
+	runes := []rune(pat)
+	n := len(runes)
+	hStart, hEnd := -1, -1
+	pStart, pEnd := -1, -1
+	inQuote := false
+	for i := 0; i < n; i++ {
+		ch := runes[i]
+		if ch == '\'' {
+			inQuote = !inQuote
+			continue
+		}
+		if inQuote {
+			continue
+		}
+		switch ch {
+		case 'h', 'H', 'K', 'k':
+			if hStart < 0 {
+				hStart = i
+			}
+			hEnd = i
+		case 'a', 'b', 'B':
+			if pStart < 0 {
+				pStart = i
+			}
+			pEnd = i
+		}
+	}
+	if hStart < 0 || pStart < 0 {
+		return false, "", false
+	}
+	if pEnd < hStart {
+		// period before hour: separator is everything between them.
+		return true, string(runes[pEnd+1 : hStart]), true
+	}
+	if pStart > hEnd {
+		// period after hour.
+		return false, string(runes[hEnd+1 : pStart]), true
+	}
+	return false, "", false
 }
 
 // removeDayPeriod strips the day-period field (a/b/B runs and adjacent spaces)
@@ -377,6 +472,15 @@ func (c *formatCtx) bestMatch(skel string) string {
 	}
 
 	want := parseSkeleton(skel)
+
+	// dayPeriod-only request (just the flexible "B" field, no hour): Intl renders
+	// the bare day period. CLDR has no bare-B availableFormat, so synthesize one
+	// at the requested width.
+	if len(want) == 1 {
+		if f, ok := want['a']; ok && f.letter == 'B' {
+			return strings.Repeat("B", f.count)
+		}
+	}
 
 	// If the request mixes date and time fields, ICU splits the skeleton into a
 	// date sub-skeleton and a time sub-skeleton, best-matches each, then joins
@@ -526,7 +630,17 @@ func (c *formatCtx) adjustWidths(pattern string, want map[rune]skelField) string
 		if wf, ok := want[cls]; ok {
 			// Match the requested length, but keep the candidate's own letter
 			// variant (e.g. keep 'L' vs 'M', 'h' vs 'H').
+			outCh := ch
 			newCnt := wf.count
+			// Zone: the candidate may carry a different zone letter (e.g. the time
+			// pattern's generic "v") than the one requested. The zone letter
+			// encodes the format kind (z name, O localized GMT offset, ...), so
+			// honor the REQUESTED letter and width rather than the candidate's;
+			// otherwise shortOffset/longOffset both collapse to the candidate's
+			// rendering. Name-based widths for non-UTC zones remain data-blocked.
+			if cls == 'z' {
+				outCh = wf.letter
+			}
 			// Do not promote a numeric pattern field to an alpha (name) one or
 			// vice versa: ICU's adjustFieldTypes never crosses the
 			// numeric<->text boundary. E.g. ja's yMMMd pattern uses a numeric
@@ -555,6 +669,12 @@ func (c *formatCtx) adjustWidths(pattern string, want map[rune]skelField) string
 					newCnt = 2
 				case c.padNumericHour:
 					newCnt = 2
+				case c.zoneNoSecPad && (ch == 'H' || ch == 'k'):
+					// With a zone field and no seconds, ICU keeps the matched 24-hour
+					// pattern's own hour width rather than unpadding a numeric hour:
+					// de's "HH:mm v" stays "09:07 UTC" while ja's "H:mm v" stays
+					// "9:07 GMT...". Preserve the candidate's count.
+					newCnt = cnt
 				default:
 					newCnt = 1
 				}
@@ -571,7 +691,7 @@ func (c *formatCtx) adjustWidths(pattern string, want map[rune]skelField) string
 				}
 			}
 			for k := 0; k < newCnt; k++ {
-				b.WriteRune(ch)
+				b.WriteRune(outCh)
 			}
 		} else {
 			for k := 0; k < cnt; k++ {

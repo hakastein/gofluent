@@ -72,6 +72,33 @@ type localeData struct {
 
 	NumberingSystem string
 	Zones           map[string]string
+
+	// DayPeriodRules maps a flexible day-period key (morning1, afternoon1,
+	// evening1, night1, noon, midnight) to its time range. For a half-open
+	// range [from,before) the value is {from, before}; for an exact-point rule
+	// (_at, used by noon/midnight) from==before==the point. Times are minutes
+	// since 00:00 (0..1440). A range may wrap past midnight (from > before).
+	DayPeriodRules map[string][2]int
+
+	// MetazoneNames maps a CLDR metazone id (e.g. "America_Eastern") to its
+	// localized names, keyed "<width>.<type>" where width is long|short and
+	// type is generic|standard|daylight (e.g. "long.daylight"). Only the
+	// sub-keys present in CLDR are emitted.
+	MetazoneNames map[string]map[string]string
+
+	// ZoneOverrides maps a CLDR zone id (legacy IANA key, '/'-joined, e.g.
+	// "Europe/London") to per-zone name overrides, same "<width>.<type>" keys
+	// as MetazoneNames. These take priority over the metazone names.
+	ZoneOverrides map[string]map[string]string
+
+	// ExemplarCities maps a CLDR zone id to its localized exemplar city
+	// (feeds the regionFormat location fallback for generic names).
+	ExemplarCities map[string]string
+
+	// TerritoryNames maps a territory code (e.g. "GB") to its localized display
+	// name, limited to the country-representative territories. Used by the
+	// generic-location format ("United Kingdom Time").
+	TerritoryNames map[string]string
 }
 
 // resolveLocale walks the CLDR fallback chain to find a locale present in the
@@ -135,9 +162,15 @@ func Format(locale string, t time.Time, opts Options) string {
 	}
 
 	// Apply timeZone.
+	zoneID := ""
+	canonicalZone := ""
+	observesDST := false
 	if opts.TimeZone != "" {
 		if loc, err := time.LoadLocation(opts.TimeZone); err == nil {
 			t = t.In(loc)
+			canonicalZone = opts.TimeZone
+			zoneID = cldrZoneID(opts.TimeZone)
+			observesDST = zoneObservesDST(t)
 		}
 	}
 
@@ -148,7 +181,7 @@ func Format(locale string, t time.Time, opts Options) string {
 	}
 	digits := numberingSystemDigits[ns]
 
-	ctx := &formatCtx{ld: ld, locale: resolved, digits: digits, opts: opts}
+	ctx := &formatCtx{ld: ld, locale: resolved, digits: digits, opts: opts, zoneID: zoneID, canonicalZone: canonicalZone, zoneObservesDST: observesDST}
 
 	pattern := ctx.resolvePattern()
 	out := ctx.interpret(pattern, t)
@@ -170,6 +203,13 @@ func (c *formatCtx) resolvePattern() string {
 			datePat = c.ld.DateFormats[o.DateStyle]
 		}
 		if hasTime {
+			// ICU pads a single-digit hour to two digits when the caller forces a
+			// 24-hour clock onto a locale that defaults to a 12-hour clock (e.g. en
+			// timeStyle:"short" + hour12:false -> "09:07"). The reverse stays as the
+			// pattern's own width. This mirrors the component path below.
+			if o.Hour12 != nil && !*o.Hour12 && c.localeUses12() {
+				c.padNumericHour = true
+			}
 			timePat = c.ld.TimeFormats[o.TimeStyle]
 			timePat = c.applyHourCycle(timePat)
 		}
@@ -196,6 +236,13 @@ func (c *formatCtx) resolvePattern() string {
 		c.padNumericHour = true
 	}
 
+	// ICU keeps a "numeric" hour padded to two digits when the resolved 24-hour
+	// pattern (HH) also carries a zone name but NO seconds (e.g. de "09:07 UTC").
+	// adjustWidths applies this only to 24-hour hour letters.
+	if o.Hour == "numeric" && o.TimeZoneName != "" && o.Second == "" {
+		c.zoneNoSecPad = true
+	}
+
 	// Component options -> build skeleton, best-match against availableFormats.
 	skel := c.buildSkeleton()
 	if skel == "" {
@@ -203,7 +250,61 @@ func (c *formatCtx) resolvePattern() string {
 		skel = "yMd"
 	}
 	pat := c.bestMatch(skel)
-	return c.applyHourCycle(pat)
+	pat = c.applyHourCycle(pat)
+	// Specific (z) and offset (O/X/Z) zone names attach to the time with a plain
+	// space when NO seconds are shown. CLDR's only zone-bearing availableFormats
+	// are generic (v/vvvv); a few locales separate them with a comma (e.g. cs
+	// "H:mm, vvvv"), which Intl keeps for generic names and for the with-seconds
+	// specific pattern, but replaces with a space for the without-seconds
+	// specific/offset case. Normalize only that case.
+	if o.Second == "" {
+		switch o.TimeZoneName {
+		case "short", "long", "shortOffset", "longOffset":
+			pat = normalizeZoneSeparator(pat)
+		}
+	}
+	// fractionalSecondDigits never appears in availableFormats, so best-fit /
+	// synthesis never carries the S field into the resolved pattern. Mirror ICU's
+	// adjustFieldTypes by injecting the fractional-second field adjacent to the
+	// seconds field after matching.
+	if o.FractionalSecondDigits != nil && *o.FractionalSecondDigits > 0 {
+		pat = injectFractionalSecond(pat, *o.FractionalSecondDigits)
+	}
+	return pat
+}
+
+// injectFractionalSecond places a decimal separator and an S-run immediately
+// after the seconds field of pattern, matching ICU's adjustFieldTypes. The "."
+// literal is the CLDR convention; ICU substitutes the locale decimal separator
+// at format time. We do not have the decimal-separator table here, so locales
+// whose decimal separator is not "." (e.g. fr uses ",") are not yet exact.
+// TODO: thread the locale decimal separator (from cldr/number) through to here.
+func injectFractionalSecond(pattern string, digits int) string {
+	runes := []rune(pattern)
+	n := len(runes)
+	inQuote := false
+	// Find the end of the last unquoted seconds run.
+	end := -1
+	for i := 0; i < n; i++ {
+		ch := runes[i]
+		if ch == '\'' {
+			inQuote = !inQuote
+			continue
+		}
+		if !inQuote && ch == 's' {
+			j := i
+			for j < n && runes[j] == 's' {
+				j++
+			}
+			end = j
+			i = j - 1
+		}
+	}
+	if end < 0 {
+		return pattern
+	}
+	frac := "." + strings.Repeat("S", digits)
+	return string(runes[:end]) + frac + string(runes[end:])
 }
 
 // combine substitutes {1}=date and {0}=time into a CLDR combiner pattern,

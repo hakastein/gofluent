@@ -66,6 +66,37 @@ for (const [tag, o] of comp) {
   optionSets.push({ tag, opts: o });
 }
 
+// Flexible day period (the dayPeriod option + B/b pattern fields): alone and
+// combined with an hour, across all three widths. These exercise the
+// dayPeriodRules range selection (morning1/afternoon1/evening1/night1/noon).
+for (const dp of ["long", "short", "narrow"]) {
+  optionSets.push({ tag: "dp:alone-" + dp, opts: { dayPeriod: dp } });
+  optionSets.push({ tag: "dp:hour-" + dp, opts: { hour: "numeric", dayPeriod: dp } });
+  optionSets.push({ tag: "dp:hm-" + dp, opts: { hour: "numeric", minute: "2-digit", dayPeriod: dp } });
+}
+
+// Named non-UTC time zones. Each (zone x timeZoneName) is rendered with
+// hour:'numeric',minute:'2-digit' so the zone name is appended. The date set
+// includes both summer and winter instants, so DST-observing zones exercise
+// the daylight vs standard name selection. timeZone is carried in the saved
+// opts (see below) so the Go harness applies it.
+const zoneList = [
+  "America/New_York",
+  "Europe/London",
+  "Asia/Kolkata",
+  "Australia/Sydney",
+  "Asia/Shanghai",
+];
+const zoneNames = ["short", "long", "shortGeneric", "longGeneric", "shortOffset", "longOffset"];
+for (const tz of zoneList) {
+  for (const zn of zoneNames) {
+    optionSets.push({
+      tag: "zone:" + tz + "/" + zn,
+      opts: { hour: "numeric", minute: "2-digit", timeZone: tz, timeZoneName: zn },
+    });
+  }
+}
+
 const out = [];
 for (const loc of locales) {
   for (const d of dates) {
@@ -81,7 +112,9 @@ for (const loc of locales) {
         locale: loc,
         ms: d,
         tag: os.tag,
-        opts: os.opts,
+        // Store the MERGED opts (incl. timeZone) so the Go harness applies the
+        // same zone we formatted under. Existing cases keep timeZone:'UTC'.
+        opts,
         value,
       });
     }
