@@ -108,17 +108,20 @@ plural.CardinalFor("ru", 2, 0, 0)                        // plural.Few
 
 ## Localization with fallback
 
+`FSLoader` accepts any `fs.FS` — typically an `embed.FS` (translations compiled into
+the binary) or `os.DirFS("./locales")` (read from disk at runtime):
+
 ```go
 import (
-    "testing/fstest"
+    "embed"
     "github.com/hakastein/gofluent/localization"
 )
 
-fsys := fstest.MapFS{
-    "en/main.ftl": {Data: []byte("greeting = Hello")},
-    "de/main.ftl": {Data: []byte("greeting = Hallo")},
-}
-loader := localization.FSLoader(fsys, "{locale}/{resource}.ftl")
+// e.g. locales/en/main.ftl ("greeting = Hello"), locales/de/main.ftl ("greeting = Hallo")
+//go:embed locales
+var locales embed.FS
+
+loader := localization.FSLoader(locales, "locales/{locale}/{resource}.ftl")
 
 l10n, _ := localization.NewFromLocales(
     []string{"de-DE"}, []string{"de", "en"}, "en",
