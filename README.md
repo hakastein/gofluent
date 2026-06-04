@@ -6,18 +6,20 @@ system for natural-sounding translations.
 gofluent is a port of the reference JavaScript implementation
 ([`@fluent/syntax`](https://github.com/projectfluent/fluent.js) and `@fluent/bundle`).
 Locale-aware formatting (plural rules, numbers, dates) is exposed through **pluggable
-interfaces**; the CLDR-backed implementations live in separate `cldr/*` packages
-**generated from CLDR data** and validated against Node's `Intl.*`, so they match
-fluent.js without depending on ICU at runtime.
+interfaces**. The CLDR-backed implementations live in separate `cldr/*` packages
+**generated from CLDR data** and validated against Node's `Intl.*`.
 
-The **entire module has zero external dependencies** — no `golang.org/x/text`, nothing.
-All CLDR data is generated into the repository.
+They are generated rather than delegated to `golang.org/x/text` for a specific reason:
+`x/text`'s number/date output diverges from ECMA-402 `Intl.*` (the engine fluent.js uses),
+so matching fluent.js means producing our own Intl-validated tables. The generation
+pipeline itself leans on existing tooling — the CLDR JSON comes from the `cldr-*` npm
+packages and the golden fixtures from Node's `Intl.*`, run in a pinned Docker image.
 
 The syntax parser and serializer are verified against the upstream Project Fluent
 conformance fixtures (62/62 structure, 35/36 reference — the one skip matches fluent.js).
 The CLDR formatters are verified against `Intl.PluralRules` (100% parity),
-`Intl.NumberFormat` (~99.8%), and `Intl.DateTimeFormat` (dateStyle/timeStyle from CLDR
-patterns; common component options) using golden fixtures dumped from Node.
+`Intl.NumberFormat` (100%), and `Intl.DateTimeFormat` (dateStyle/timeStyle from CLDR
+patterns; ~94% on component options) using golden fixtures dumped from Node.
 
 ## Install
 
@@ -39,8 +41,6 @@ Requires Go 1.26+.
 | `.../cldr/datetime` | CLDR date / time formatting (710 locales). Usable standalone. |
 | `.../langneg` | Language negotiation (port of `@fluent/langneg`). |
 | `.../localization` | High-level fallback layer over an ordered chain of locale bundles. |
-
-Every package depends only on the Go standard library.
 
 ## Quick start
 
