@@ -53,6 +53,17 @@ func TestNumberBuiltinDefaults(t *testing.T) {
 		require.ErrorIs(t, errs[0], fluent.ErrRange)
 	})
 
+	t.Run("fractional integer-option value is invalid", func(t *testing.T) {
+		// A non-integral Number option (e.g. 2.9) is out of spec for an integer
+		// option and routes to the same RangeError as the string "2.9", rather
+		// than being silently truncated to 2.
+		fb := newTestBundle(t, "num-frac-num = { NUMBER($arg, minimumFractionDigits: 2.9) }\n")
+		got, errs := format(t, fb, "num-frac-num", map[string]any{"arg": 1234})
+		assert.Equal(t, "1234", got)
+		require.Len(t, errs, 1, "expected a single range error")
+		require.ErrorIs(t, errs[0], fluent.ErrRange)
+	})
+
 	t.Run("string argument is invalid", func(t *testing.T) {
 		got, errs := format(t, b, "num-bare", map[string]any{"arg": "Foo"})
 		assert.Equal(t, "{NUMBER()}", got)
@@ -66,6 +77,30 @@ func TestNumberBuiltinDefaults(t *testing.T) {
 		require.Len(t, errs, 1, "expected a single type error")
 		require.ErrorIs(t, errs[0], fluent.ErrType)
 	})
+}
+
+// recordingNumberFormatter captures the NumberOptions it is handed so a test
+// can assert which named options NUMBER() forwarded.
+type recordingNumberFormatter struct{ last fluent.NumberOptions }
+
+func (f *recordingNumberFormatter) FormatNumber(_ string, _ float64, opts fluent.NumberOptions) string {
+	f.last = opts
+	return "fmt"
+}
+
+func TestNumberBuiltinForwardsUnit(t *testing.T) {
+	rec := &recordingNumberFormatter{}
+	b := fluent.NewBundle("en-US",
+		fluent.WithUseIsolating(false),
+		fluent.WithNumberFormatter(rec),
+	)
+	b.AddResource(mustParse(t, "n = { NUMBER($arg, style: \"unit\", unit: \"kilometer\") }\n"))
+
+	got, errs := format(t, b, "n", map[string]any{"arg": 5})
+	assert.Equal(t, "fmt", got)
+	assert.Empty(t, errs)
+	assert.Equal(t, "kilometer", rec.last.Unit)
+	assert.Equal(t, "unit", rec.last.Style)
 }
 
 func TestNumberBuiltinFluentNumberMerge(t *testing.T) {
@@ -132,6 +167,49 @@ func TestDateTimeBuiltin(t *testing.T) {
 	})
 }
 
+// recordingDateTimeFormatter captures the DateTimeOptions it is handed so a
+// test can assert that the DATETIME() builtin forwarded a given named option
+// into the right field.
+type recordingDateTimeFormatter struct{ last fluent.DateTimeOptions }
+
+func (f *recordingDateTimeFormatter) FormatDateTime(_ string, _ time.Time, opts fluent.DateTimeOptions) string {
+	f.last = opts
+	return "fmt"
+}
+
+func TestDateTimeBuiltinForwardsOptions(t *testing.T) {
+	rec := &recordingDateTimeFormatter{}
+	b := fluent.NewBundle("en-US",
+		fluent.WithUseIsolating(false),
+		fluent.WithDateTimeFormatter(rec),
+	)
+	src := "tz = { DATETIME($arg, timeZone: \"America/New_York\") }\n" +
+		"cal = { DATETIME($arg, calendar: \"buddhist\") }\n" +
+		"ns = { DATETIME($arg, numberingSystem: \"arab\") }\n"
+	b.AddResource(mustParse(t, src))
+
+	arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		id   string
+		get  func(fluent.DateTimeOptions) string
+		want string
+	}{
+		{"timeZone", "tz", func(o fluent.DateTimeOptions) string { return o.TimeZone }, "America/New_York"},
+		{"calendar", "cal", func(o fluent.DateTimeOptions) string { return o.Calendar }, "buddhist"},
+		{"numberingSystem", "ns", func(o fluent.DateTimeOptions) string { return o.NumberingSystem }, "arab"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, map[string]any{"arg": arg})
+			assert.Equal(t, "fmt", got)
+			assert.Empty(t, errs)
+			assert.Equal(t, tc.want, tc.get(rec.last))
+		})
+	}
+}
+
 func TestRuntimeFunctions(t *testing.T) {
 	concat := func(args []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 		s := ""
@@ -194,6 +272,56 @@ func TestFunctionErrorIsRecovered(t *testing.T) {
 	got, errs := format(t, b, "foo", nil)
 	assert.Equal(t, "{BOOM()}", got)
 	assert.Len(t, errs, 1, "the function error should be recovered into the sink")
+}
+
+func TestFunctionPanicHandling(t *testing.T) {
+	// A function that panics with a custom error value is recovered like a
+	// returned error: the call renders {FUNC()} and the error reaches the sink.
+	t.Run("custom error panic is recovered", func(t *testing.T) {
+		panicErr := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
+			panic(errors.New("custom boom"))
+		}
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
+		b.AddFunction("PANICERR", panicErr)
+		b.AddResource(mustParse(t, "foo = { PANICERR() }\n"))
+
+		got, errs := format(t, b, "foo", nil)
+		assert.Equal(t, "{PANICERR()}", got)
+		assert.Len(t, errs, 1, "the panicked error should be recovered into the sink")
+	})
+
+	t.Run("non-error panic is recovered", func(t *testing.T) {
+		panicStr := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
+			panic("plain string boom")
+		}
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
+		b.AddFunction("PANICSTR", panicStr)
+		b.AddResource(mustParse(t, "foo = { PANICSTR() }\n"))
+
+		got, errs := format(t, b, "foo", nil)
+		assert.Equal(t, "{PANICSTR()}", got)
+		assert.Len(t, errs, 1, "the panicked value should be recovered into the sink")
+	})
+
+	t.Run("runtime panic propagates", func(t *testing.T) {
+		// A genuine programming bug (nil map write -> runtime.Error) must NOT be
+		// swallowed; it surfaces so the developer sees the real fault.
+		nilDeref := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
+			var m map[string]int
+			m["x"] = 1 // assignment to entry in nil map -> runtime panic
+			return fluent.FluentString("unreachable"), nil
+		}
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
+		b.AddFunction("NILDEREF", nilDeref)
+		b.AddResource(mustParse(t, "foo = { NILDEREF() }\n"))
+
+		msg, ok := b.GetMessage("foo")
+		require.True(t, ok)
+		assert.Panics(t, func() {
+			var errs []error
+			b.FormatPattern(msg.Value, nil, &errs)
+		}, "a runtime panic inside a function must propagate")
+	})
 }
 
 func TestUnknownFunction(t *testing.T) {

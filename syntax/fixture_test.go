@@ -12,10 +12,12 @@ import (
 	"github.com/hakastein/gofluent/syntax/ast"
 )
 
-// fixturesDir points at the reference fixtures_structure directory. These are
-// only used for a few spot checks here; the full sweep is owned by the
-// conformance suite.
-const fixturesDir = "../.reference/fluent.js/fluent-syntax/test/fixtures_structure"
+// fixturesDir points at the vendored structure fixtures under
+// internal/conformance/testdata/structure. These files are tracked in the
+// repository and must be present on every checkout; a missing file is a test
+// failure, not a skip. The full fixture sweep is owned by the conformance
+// suite; this file holds a focused spot-check on a few representative cases.
+const fixturesDir = "../internal/conformance/testdata/structure"
 
 func TestFixtureSpotChecks(t *testing.T) {
 	names := []string{
@@ -28,14 +30,13 @@ func TestFixtureSpotChecks(t *testing.T) {
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ftl, err := os.ReadFile(filepath.Join(fixturesDir, name+".ftl"))
-			if err != nil {
-				t.Skipf("fixture missing: %v", err)
-			}
-			wantBytes, err := os.ReadFile(filepath.Join(fixturesDir, name+".json"))
-			if err != nil {
-				t.Skipf("expected json missing: %v", err)
-			}
+			ftlPath := filepath.Join(fixturesDir, name+".ftl")
+			jsonPath := filepath.Join(fixturesDir, name+".json")
+
+			ftl, err := os.ReadFile(ftlPath)
+			require.NoError(t, err, "reading fixture %s", ftlPath)
+			wantBytes, err := os.ReadFile(jsonPath)
+			require.NoError(t, err, "reading expected JSON %s", jsonPath)
 
 			res := syntax.Parse(string(ftl))
 			gotBytes, err := ast.Marshal(res, true)

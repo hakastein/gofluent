@@ -24,15 +24,6 @@ func splitSubpatterns(pattern string) (subpattern, subpattern) {
 	return pos, neg
 }
 
-// numberBodyChars are the characters that form the numeric body of a pattern.
-func isBodyChar(r rune) bool {
-	switch r {
-	case '#', '0', ',', '.', '‰', '¤': // include perMille and ¤? handled separately
-		return r == '#' || r == '0' || r == ',' || r == '.'
-	}
-	return r == '#' || r == '0' || r == ',' || r == '.'
-}
-
 // extractAffixes splits one subpattern into prefix, numeric body and suffix.
 // The numeric body is the maximal run containing only #, 0, comma and dot.
 func extractAffixes(p string) subpattern {

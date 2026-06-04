@@ -3,6 +3,7 @@ package fluent
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -195,7 +196,7 @@ func resolveVariableReference(scope *Scope, ref *VariableReference) Value {
 
 // resolveMessageReference resolves a reference to another message.
 func resolveMessageReference(scope *Scope, ref *MessageReference) Value {
-	message, ok := scope.bundle.messages[ref.Name]
+	message, ok := scope.bundle.lookupMessage(ref.Name)
 	if !ok {
 		scope.reportError(newReferenceError("Unknown message: %s", ref.Name))
 		return NewNone(ref.Name)
@@ -220,7 +221,7 @@ func resolveMessageReference(scope *Scope, ref *MessageReference) Value {
 // resolveTermReference resolves a call to a Term with key-value arguments.
 func resolveTermReference(scope *Scope, ref *TermReference) Value {
 	id := "-" + ref.Name
-	term, ok := scope.bundle.terms[id]
+	term, ok := scope.bundle.lookupTerm(id)
 	if !ok {
 		scope.reportError(newReferenceError("Unknown term: %s", id))
 		return NewNone(id)
@@ -228,29 +229,33 @@ func resolveTermReference(scope *Scope, ref *TermReference) Value {
 
 	if ref.Attr != "" {
 		if attribute, ok := term.Attributes[ref.Attr]; ok {
-			// Every TermReference has its own variables.
-			prevParams, prevSet := scope.params, scope.paramsSet
+			// Every TermReference has its own variables. Mirroring fluent.js
+			// (resolver.ts: `scope.params = ...` then `scope.params = null`), the
+			// params are cleared after resolving rather than restored to whatever
+			// term was being resolved before — so a variable referenced after an
+			// embedded term resolves against the top-level args.
 			scope.params = getArguments(scope, ref.Args).named
 			scope.paramsSet = true
 			resolved := resolvePattern(scope, attribute)
-			scope.params, scope.paramsSet = prevParams, prevSet
+			scope.params, scope.paramsSet = nil, false
 			return resolved
 		}
 		scope.reportError(newReferenceError("Unknown attribute: %s", ref.Attr))
 		return NewNone(id + "." + ref.Attr)
 	}
 
-	prevParams, prevSet := scope.params, scope.paramsSet
+	// See the note above: set params for this term's body, then null them out
+	// (do not restore a previous bag), matching fluent.js.
 	scope.params = getArguments(scope, ref.Args).named
 	scope.paramsSet = true
 	resolved := resolvePattern(scope, term.Value)
-	scope.params, scope.paramsSet = prevParams, prevSet
+	scope.params, scope.paramsSet = nil, false
 	return resolved
 }
 
 // resolveFunctionReference resolves a call to a Function.
 func resolveFunctionReference(scope *Scope, ref *FunctionReference) Value {
-	fn, ok := scope.bundle.functions[ref.Name]
+	fn, ok := scope.bundle.lookupFunction(ref.Name)
 	if !ok {
 		scope.reportError(newReferenceError("Unknown function: %s()", ref.Name))
 		return NewNone(ref.Name + "()")
@@ -265,11 +270,18 @@ func resolveFunctionReference(scope *Scope, ref *FunctionReference) Value {
 	return result
 }
 
-// callFunction invokes a Function, converting a returned error or a Go panic
-// into the error path (mirroring the try/catch around func() in fluent.js).
+// callFunction invokes a Function, converting a returned error or an
+// intentionally-thrown panic into the error path (mirroring the try/catch
+// around func() in fluent.js). A genuine Go runtime fault (nil-deref, index
+// out of range, nil-map write, ...) is a programming bug, not a translation
+// error, so it is re-panicked rather than turned into a {FUNC()} fallback.
 func callFunction(fn Function, positional []Value, named map[string]Value) (result Value, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			if re, ok := r.(runtime.Error); ok {
+				// Real programming bug: let it surface.
+				panic(re)
+			}
 			if fe, ok := r.(error); ok {
 				err = fe
 			} else {

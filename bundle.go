@@ -2,6 +2,7 @@ package fluent
 
 import (
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,12 @@ type TextTransform func(string) string
 
 // Bundle is a single-language store of translation resources, responsible for
 // formatting message values and attributes to strings.
+//
+// A Bundle is safe for concurrent use: FormatPattern/FormatPatternAny,
+// HasMessage, GetMessage, AddFunction, AddResource, and AddResourceOverriding
+// may be called from multiple goroutines simultaneously. The messages, terms,
+// and functions maps are guarded by mu; the locale and the injected formatters
+// are set once at construction and never mutated afterwards.
 type Bundle struct {
 	// locale is the BCP-47 tag used by the pluggable formatters. fluent.js
 	// supports a locale fallback list; the core here keeps a single primary
@@ -26,6 +33,13 @@ type Bundle struct {
 	locale  string
 	locales []string
 
+	// mu guards the terms, messages, and functions maps, which are mutated by
+	// AddFunction/addResource and read by the resolver during FormatPattern as
+	// well as by HasMessage/GetMessage. It is held only for the duration of a
+	// single map lookup or insert — never across a whole FormatPattern or a
+	// user-function call, so a function that itself calls AddFunction does not
+	// deadlock.
+	mu        sync.RWMutex
 	terms     map[string]*Term
 	messages  map[string]*Message
 	functions map[string]Function
@@ -134,19 +148,45 @@ func (b *Bundle) Locale() string { return b.locale }
 
 // AddFunction registers (or overrides) a runtime function by name.
 func (b *Bundle) AddFunction(name string, fn Function) {
+	b.mu.Lock()
 	b.functions[name] = fn
+	b.mu.Unlock()
 }
 
 // HasMessage reports whether a public message with the given id exists.
 func (b *Bundle) HasMessage(id string) bool {
-	_, ok := b.messages[id]
+	_, ok := b.lookupMessage(id)
 	return ok
 }
 
 // GetMessage returns the raw message with the given id, if present.
 func (b *Bundle) GetMessage(id string) (*Message, bool) {
+	return b.lookupMessage(id)
+}
+
+// lookupMessage returns the message with the given id under a read lock.
+func (b *Bundle) lookupMessage(id string) (*Message, bool) {
+	b.mu.RLock()
 	m, ok := b.messages[id]
+	b.mu.RUnlock()
 	return m, ok
+}
+
+// lookupTerm returns the term with the given id (including the leading "-")
+// under a read lock.
+func (b *Bundle) lookupTerm(id string) (*Term, bool) {
+	b.mu.RLock()
+	t, ok := b.terms[id]
+	b.mu.RUnlock()
+	return t, ok
+}
+
+// lookupFunction returns the function registered under name under a read lock.
+func (b *Bundle) lookupFunction(name string) (Function, bool) {
+	b.mu.RLock()
+	fn, ok := b.functions[name]
+	b.mu.RUnlock()
+	return fn, ok
 }
 
 // AddResource adds a parsed resource to the bundle without allowing overrides.
@@ -163,6 +203,9 @@ func (b *Bundle) AddResourceOverriding(res *Resource) []error {
 
 func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 	var errors []error
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	for _, entry := range res.Body {
 		switch e := entry.(type) {
@@ -197,11 +240,14 @@ type overrideError struct{ msg string }
 func (e *overrideError) Error() string { return e.msg }
 
 // FormatPattern formats a Pattern to a string. args resolves variable
-// references; pass nil for none. errs collects encountered errors; if errs is
-// nil, the first error is returned as the fluentPanic-recovered error... but to
-// keep a string return, a nil errs causes the first error to be thrown
-// (panicked) and recovered into the returned string, matching fluent.js where
-// omitting errors throws.
+// references; pass nil for none.
+//
+// errs selects the error mode, mirroring fluent.js:
+//   - Non-nil errs is collect mode: every resolution error is appended to *errs
+//     and a best-effort string is always returned (the resolver never panics).
+//   - Nil errs is throw mode: the first resolution error is "thrown" (panics out
+//     of FormatPattern). The caller is responsible for recovering it. Use this
+//     only when you want strict failure rather than fault-tolerant rendering.
 //
 // args accepts a map[string]Value (already-typed) — see FormatPatternAny for a
 // map[string]any convenience wrapper.
@@ -250,6 +296,11 @@ func (b *Bundle) FormatPattern(pattern Pattern, args map[string]Value, errs *[]e
 
 // FormatPatternAny is a convenience wrapper accepting raw Go argument values
 // (map[string]any). Values are converted to Fluent Values via coerceArg.
+//
+// Precision note: integer arguments are stored as float64 (Fluent's only
+// numeric type, matching JS). int64/uint64 magnitudes above 2^53 cannot be
+// represented exactly and may be rounded; pass a preformatted string (or a
+// custom Value) when exact rendering of such large integers matters.
 func (b *Bundle) FormatPatternAny(pattern Pattern, args map[string]any, errs *[]error) string {
 	var typed map[string]Value
 	if args != nil {
@@ -265,6 +316,11 @@ func (b *Bundle) FormatPatternAny(pattern Pattern, args map[string]any, errs *[]
 // JS-value -> FluentValue coercion in resolveVariableReference. Unsupported
 // types map to nil (which the resolver reports as a TypeError and renders as a
 // missing-variable fallback).
+//
+// All integer kinds are widened to float64, since Fluent has a single numeric
+// type (as in JS). Consequently int64/uint64 values with a magnitude above 2^53
+// lose precision in the conversion and may render rounded; supply a string or a
+// custom Value for exact large-integer output.
 func coerceArg(v any) Value {
 	switch x := v.(type) {
 	case nil:

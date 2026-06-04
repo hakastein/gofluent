@@ -42,7 +42,10 @@ func unescapeStringLiteral(s string) string {
 }
 
 // parseHexEscape reads n hex digits starting at index start, returning the
-// resolved rune. Surrogate code points yield U+FFFD.
+// resolved rune. Surrogate code points and code points beyond the Unicode
+// maximum (U+10FFFF) are intentionally replaced with U+FFFD, matching the
+// reference (where String.fromCodePoint of an out-of-range value would throw,
+// so such escapes never produce a valid scalar).
 func parseHexEscape(rs []rune, start, n int) (rune, bool) {
 	if start+n > len(rs) {
 		return 0, false
@@ -51,8 +54,11 @@ func parseHexEscape(rs []rune, start, n int) (rune, bool) {
 	if err != nil {
 		return 0, false
 	}
-	if cp <= 0xD7FF || cp >= 0xE000 {
-		return rune(cp), true
+	// Reject surrogates (U+D800..U+DFFF) and anything above the Unicode maximum;
+	// either way yield the replacement character explicitly rather than relying
+	// on string([]rune{...}) to coerce an invalid code point to U+FFFD.
+	if (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF {
+		return '�', true
 	}
-	return '�', true
+	return rune(cp), true
 }

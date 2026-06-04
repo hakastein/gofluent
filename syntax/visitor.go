@@ -115,10 +115,11 @@ func isNilNode(n ast.Node) bool {
 }
 
 // children returns the direct child nodes of node, in declaration order,
-// skipping nil optionals. Span is not traversed (matching genericVisit, which
-// only iterates own enumerable node-valued properties; span is a node but the
-// reference visitor would visit it — however walking spans is rarely useful and
-// the reference visitSpan hook is preserved by including it here).
+// skipping nil optionals. Matching the reference genericVisit, which iterates
+// every own node-valued property (including the `span` set by addSpan), the
+// node's own Span is appended last so Visitor/Transformer are invoked on Span
+// nodes too. The Span is a child of every spanned node, hence handled by the
+// trailing addSpanChild below rather than per-case.
 func children(node ast.Node) []ast.Node {
 	var out []ast.Node
 	add := func(n ast.Node) {
@@ -188,6 +189,15 @@ func children(node ast.Node) []ast.Node {
 	case *ast.Junk:
 		for _, a := range n.Annotations {
 			add(a)
+		}
+	}
+
+	// Append the node's own Span last, mirroring the reference genericVisit
+	// which also recurses into the `span` property added by addSpan. A *Span has
+	// no span of its own (GetSpan returns nil), so this does not recurse.
+	if sn, ok := node.(ast.SyntaxNode); ok {
+		if sp := sn.GetSpan(); sp != nil {
+			out = append(out, sp)
 		}
 	}
 	return out
@@ -268,6 +278,21 @@ func transformChildren(t Transformer, node ast.Node) {
 		}
 	case *ast.Junk:
 		n.Annotations = transformAnnots(t, n.Annotations)
+	}
+
+	// Mirror the reference genericVisit, which also transforms the `span`
+	// property: apply t to the node's own Span, replacing or removing it. A
+	// *Span has no further children, so this terminates. *Span nodes themselves
+	// are not SyntaxNodes (no SetSpan), so they are skipped here.
+	if sn, ok := node.(ast.SyntaxNode); ok {
+		if sp := sn.GetSpan(); sp != nil {
+			r := Transform(t, sp)
+			if r == nil || isNilNode(r) {
+				sn.SetSpan(nil)
+			} else if newSpan, ok := r.(*ast.Span); ok {
+				sn.SetSpan(newSpan)
+			}
+		}
 	}
 }
 

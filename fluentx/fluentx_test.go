@@ -93,6 +93,33 @@ func TestPluralFractionDigits(t *testing.T) {
 		"Cardinal(en, 1.0, maxFrac=0)")
 }
 
+// TestPluralSignificantDigits shows that significant-digit options influence the
+// plural operands the same way the number formatter renders them: with
+// minimumSignificantDigits:3 the integer 1 is formatted "1.00" (v=2), so its
+// English cardinal category is "other", not "one". Confirmed against Node's
+// Intl.PluralRules / Intl.NumberFormat (CLDR 46).
+func TestPluralSignificantDigits(t *testing.T) {
+	pr := fluentx.NewPluralRules()
+
+	// 1 with minSig=3 -> "1.00" -> "other".
+	assert.Equal(t, "other", pr.Cardinal("en", 1, fluent.NumberOptions{MinimumSignificantDigits: intp(3)}),
+		"Cardinal(en, 1, minSig=3)")
+	// Sanity: without options 1 is "one".
+	assert.Equal(t, "one", pr.Cardinal("en", 1, fluent.NumberOptions{}),
+		"Cardinal(en, 1)")
+	// maxSig that rounds a decimal back to a 1-significant-digit integer: 1.4
+	// with maxSig=1 -> "1" (v=0) -> "one".
+	assert.Equal(t, "one", pr.Cardinal("en", 1.4, fluent.NumberOptions{MaximumSignificantDigits: intp(1)}),
+		"Cardinal(en, 1.4, maxSig=1)")
+	// Fraction-digit options still work alongside (regression guard).
+	assert.Equal(t, "other", pr.Cardinal("en", 1, fluent.NumberOptions{MinimumFractionDigits: intp(1)}),
+		"Cardinal(en, 1, minFrac=1)")
+	// Ordinal still routes correctly with significant digits: 2 with maxSig=1 is
+	// formatted "2" (i=2,v=0) -> ordinal "two" in English.
+	assert.Equal(t, "two", pr.Ordinal("en", 2, fluent.NumberOptions{MaximumSignificantDigits: intp(1)}),
+		"Ordinal(en, 2, maxSig=1)")
+}
+
 func TestFormatNumber(t *testing.T) {
 	nf := fluentx.NewNumberFormatter()
 	// The CLDR group separators emitted by cldr/number (matching Intl): French

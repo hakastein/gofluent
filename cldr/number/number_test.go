@@ -127,12 +127,12 @@ func TestIntlMatch(t *testing.T) {
 		}
 	}
 
-	// Gate: require a very high match rate. The only known residual
-	// divergences are bundled-data version drift (the committed cldr-data is
-	// CLDR 45 while Node's full-ICU is newer): a handful of Spanish currency
-	// display names gained qualifiers ("yuan" -> "yuan renminbi", "yen" ->
-	// "yenes japoneses") in CLDR 46. These are faithful to the source data, not
-	// algorithm defects. The threshold leaves a small margin for that drift.
+	// Gate: require a very high match rate. The generation pipeline is pinned to
+	// CLDR 46 (the Go generators reading the cldr-data JSON and Node's full-ICU
+	// that dumps these fixtures see the same CLDR release), so tables and
+	// fixtures agree by construction and parity is currently 100%. The threshold
+	// stays a hair below 100% as a floor: it leaves a small margin for benign
+	// future data drift without silently masking an algorithm regression.
 	assert.GreaterOrEqualf(t, rate, 99.5, "Intl match rate %.2f%% below 99.5%% threshold", rate)
 }
 

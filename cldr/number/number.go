@@ -116,7 +116,9 @@ func Format(locale string, value float64, opts Options) string {
 	// Format the magnitude into integer/fraction digit strings.
 	intPart, fracPart := formatMagnitude(math.Abs(scaled), rs)
 
-	negative := math.Signbit(scaled) && !(intPart == "0" && fracPart == "")
+	// Preserve the sign bit even when the magnitude rounds to zero: Intl renders
+	// negative zero (and negatives that round to integer zero) as "-0"/"-0%".
+	negative := math.Signbit(scaled)
 	// Apply grouping to the integer part.
 	grouped := applyGrouping(ld, pattern, intPart, &opts, style)
 
@@ -161,6 +163,9 @@ func resolveRounding(style string, o *Options, haveCur bool, cur currencyInfo) r
 		if o.MaximumSignificantDigits != nil {
 			rs.maxSig = *o.MaximumSignificantDigits
 		}
+		// Intl throws a RangeError when minSig > maxSig; as a best-effort,
+		// no-panic formatter we instead clamp the maximum up to the minimum
+		// (intentional divergence).
 		if rs.maxSig < rs.minSig {
 			rs.maxSig = rs.minSig
 		}

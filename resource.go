@@ -15,11 +15,6 @@ import (
 // begins at offset 0 of the slice. Capture-group indices are translated back to
 // absolute offsets by adding the cursor.
 
-// RE_MESSAGE_START — iterate the beginnings of messages and terms. The /m flag
-// (^ at line starts) and the (?<!\r) lookbehind are emulated manually in the
-// constructor loop below; here we capture just the id and the `= ` run.
-var reMessageStartLine = regexp.MustCompile(`^(-?[a-zA-Z][\w-]*) *= *`)
-
 var (
 	reAttributeStart = regexp.MustCompile(`^\.([a-zA-Z][\w-]*) *= *`)
 	reVariantStart   = regexp.MustCompile(`^\*?\[`)
@@ -633,6 +628,13 @@ func (p *parser) parseEscapeSequence() (string, error) {
 		codepoint, err := strconv.ParseInt(hex, 16, 32)
 		if err != nil {
 			return "", &syntaxError{msg: "Invalid escape"}
+		}
+		// A \U escape can name up to 0xFFFFFF, but the largest valid Unicode
+		// scalar is U+10FFFF. Reject anything above it explicitly (rather than
+		// relying on Go's string(rune) silently yielding U+FFFD) so the intent is
+		// clear.
+		if codepoint > 0x10FFFF {
+			return "�", nil
 		}
 		if codepoint <= 0xd7ff || codepoint >= 0xe000 {
 			return string(rune(codepoint)), nil

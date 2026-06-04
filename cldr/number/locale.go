@@ -21,7 +21,6 @@ type localeData struct {
 	decimal       string // standard decimal pattern
 	percent       string // standard percent pattern
 	currency      string // standard currency pattern
-	accounting    string // accounting currency pattern
 	minGrouping   int
 	digits        string // numbering-system digit glyphs ("" => latn/ASCII)
 	spacingBefore string
@@ -62,7 +61,6 @@ func resolveLocale(locale string) *localeData {
 	ld.decimal = patternTable[e.decimalPat]
 	ld.percent = patternTable[e.percentPat]
 	ld.currency = patternTable[e.currencyPat]
-	ld.accounting = patternTable[e.accountingPat]
 	ld.spacingBefore = e.spacingBefore
 	ld.spacingAfter = e.spacingAfter
 	if e.digitSys != "" {

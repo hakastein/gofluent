@@ -1,6 +1,7 @@
 package fluent
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -29,6 +30,12 @@ func optString(v Value) (string, bool) {
 func optInt(v Value) (int, bool) {
 	switch t := v.(type) {
 	case *Number:
+		// Only an integral value is a valid integer option. A fractional value
+		// (e.g. 2.9) is out of spec and must fail the same way the string "2.9"
+		// does, rather than being silently truncated.
+		if t.value != math.Trunc(t.value) {
+			return 0, false
+		}
 		return int(t.value), true
 	case FluentString:
 		if n, err := strconv.Atoi(strings.TrimSpace(string(t))); err == nil {
@@ -76,6 +83,10 @@ func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions
 		case "currencyDisplay":
 			if s, ok := optString(v); ok {
 				out.CurrencyDisplay = s
+			}
+		case "unit":
+			if s, ok := optString(v); ok {
+				out.Unit = s
 			}
 		case "unitDisplay":
 			if s, ok := optString(v); ok {
@@ -160,6 +171,12 @@ func dateTimeOptionsFrom(base DateTimeOptions, opts map[string]Value) DateTimeOp
 			setStr(&out.Second, v)
 		case "timeZoneName":
 			setStr(&out.TimeZoneName, v)
+		case "timeZone":
+			setStr(&out.TimeZone, v)
+		case "calendar":
+			setStr(&out.Calendar, v)
+		case "numberingSystem":
+			setStr(&out.NumberingSystem, v)
 		case "fractionalSecondDigits":
 			if n, ok := optInt(v); ok {
 				out.FractionalSecondDigits = intPtr(n)

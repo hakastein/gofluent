@@ -105,6 +105,29 @@ func TestParameterizedTermAttributes(t *testing.T) {
 	}
 }
 
+// TestTermParamsClearedAfterNestedTerm pins the fluent.js scoping rule: a
+// TermReference sets scope.params for the duration of its own body and then
+// nulls them out unconditionally (resolver.ts lines 239-251: `scope.params =
+// getArguments(...).named` ... `scope.params = null`). It does NOT restore a
+// previously-active params bag. So once an outer term has embedded an inner
+// term, any variable the outer term references AFTER that embedding is resolved
+// against the top-level args, not against the outer term's own params.
+//
+// Here -outer embeds -inner, then references $x. With the fluent.js null-out
+// rule the trailing {$x} sees scope.params == null after -inner resolves and so
+// reads the top-level arg "top". (A restore-prev implementation would instead
+// surface the outer term's own arg "term".)
+func TestTermParamsClearedAfterNestedTerm(t *testing.T) {
+	src := "-inner = Inner\n" +
+		"-outer = {-inner} {$x}\n" +
+		"msg = {-outer(x: \"term\")}\n"
+	b := newTestBundle(t, src)
+
+	got, errs := format(t, b, "msg", map[string]any{"x": "top"})
+	assert.Equal(t, "Inner top", got)
+	assert.Empty(t, errs)
+}
+
 func TestNestingTermReferences(t *testing.T) {
 	src := "-foo = Foo {$arg}\n" +
 		"-bar = {-foo}\n" +

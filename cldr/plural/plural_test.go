@@ -92,6 +92,50 @@ func TestLocaleFallback(t *testing.T) {
 	}
 }
 
+// TestNewOperandsHalfAwayRounding asserts NewOperands rounds half away from
+// zero (ECMA-402/ICU halfExpand), not Go's default half-to-even, and that the
+// rounding is decimal-string precise (so the plural category agrees with the
+// number the formatter displays). Expected values are confirmed against Node's
+// Intl.PluralRules / Intl.NumberFormat (CLDR 46).
+func TestNewOperandsHalfAwayRounding(t *testing.T) {
+	tests := []struct {
+		name       string
+		n          float64
+		minF, maxF int
+		// expected operands of the ROUNDED value (what Intl would display).
+		wantI int64
+		wantV int
+		wantW int
+		wantF int64
+		wantT int64
+		// English cardinal category for the same min/max.
+		wantCat plural.Category
+	}{
+		// 0.5 rounded to 0 frac: half away from zero -> 1 (Go half-to-even -> 0).
+		{name: "0.5 maxFrac0", n: 0.5, minF: 0, maxF: 0, wantI: 1, wantV: 0, wantW: 0, wantF: 0, wantT: 0, wantCat: plural.One},
+		// 2.5 rounded to 0 frac -> 3 (Go half-to-even -> 2).
+		{name: "2.5 maxFrac0", n: 2.5, minF: 0, maxF: 0, wantI: 3, wantV: 0, wantW: 0, wantF: 0, wantT: 0, wantCat: plural.Other},
+		// 8.575 rounded to 2 frac: decimal-string half-away -> 8.58. Naive float
+		// math (FormatFloat 'f' or abs*100) yields 8.57, disagreeing with Intl.
+		{name: "8.575 maxFrac2 precision tie", n: 8.575, minF: 2, maxF: 2, wantI: 8, wantV: 2, wantW: 2, wantF: 58, wantT: 58, wantCat: plural.Other},
+		// 1.255 rounded to 2 frac -> 1.26 (FormatFloat 'f' gives 1.25).
+		{name: "1.255 maxFrac2 precision tie", n: 1.255, minF: 2, maxF: 2, wantI: 1, wantV: 2, wantW: 2, wantF: 26, wantT: 26, wantCat: plural.Other},
+		// 0.015 rounded to 2 frac -> 0.02 (FormatFloat 'f' gives 0.01).
+		{name: "0.015 maxFrac2 precision tie", n: 0.015, minF: 2, maxF: 2, wantI: 0, wantV: 2, wantW: 2, wantF: 2, wantT: 2, wantCat: plural.Other},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o := plural.NewOperands(tc.n, tc.minF, tc.maxF)
+			assert.Equal(t, tc.wantI, o.I, "I")
+			assert.Equal(t, tc.wantV, o.V, "V")
+			assert.Equal(t, tc.wantW, o.W, "W")
+			assert.Equal(t, tc.wantF, o.F, "F")
+			assert.Equal(t, tc.wantT, o.T, "T")
+			assert.Equal(t, tc.wantCat, plural.CardinalFor("en", tc.n, tc.minF, tc.maxF), "cardinal en")
+		})
+	}
+}
+
 func TestRussianCardinal(t *testing.T) {
 	tests := []struct {
 		name string

@@ -699,7 +699,11 @@ func (p *FluentParser) getUnicodeEscapeSequence(ps *parserStream, u rune, digits
 		ch, ok := ps.takeHexDigit()
 		if !ok {
 			cur := ps.currentChar()
-			curStr := ""
+			// Mirror fluent.js: the message interpolates ps.currentChar(), which
+			// is `undefined` at EOF and renders as the literal string
+			// "undefined" (e.g. \u00undefined). A real terminating char is
+			// printed as-is.
+			curStr := "undefined"
 			if cur != eof {
 				curStr = string(cur)
 			}

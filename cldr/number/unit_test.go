@@ -34,6 +34,39 @@ func TestSpecialValues(t *testing.T) {
 	}
 }
 
+// negZero returns a true negative zero (-0.0), which a literal "-0" constant
+// folds away to +0 in Go.
+func negZero() float64 {
+	z := 0.0
+	return -z
+}
+
+// TestNegativeZero asserts the formatter preserves the sign of negative zero and
+// of negatives that round to integer zero, matching Intl.NumberFormat, which
+// renders "-0" / "-0%" (confirmed against Node, CLDR 46).
+func TestNegativeZero(t *testing.T) {
+	tests := []struct {
+		name   string
+		locale string
+		value  float64
+		opts   number.Options
+		want   string
+	}{
+		{name: "negative zero decimal", locale: "en", value: negZero(), opts: number.Options{}, want: "-0"},
+		{name: "negative rounds to zero", locale: "en", value: -0.4, opts: number.Options{MaximumFractionDigits: ptrInt(0)}, want: "-0"},
+		{name: "negative zero percent", locale: "en", value: negZero(), opts: number.Options{Style: "percent"}, want: "-0%"},
+		{name: "negative percent rounds to zero", locale: "en", value: -0.004, opts: number.Options{Style: "percent", MaximumFractionDigits: ptrInt(0)}, want: "-0%"},
+		// Sanity: the fraction-shown path already keeps the sign.
+		{name: "negative zero with fraction shown", locale: "en", value: negZero(), opts: number.Options{MinimumFractionDigits: ptrInt(2)}, want: "-0.00"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := number.Format(tc.locale, tc.value, tc.opts)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestLocaleFallback verifies the exact -> truncate -> root resolution chain.
 func TestLocaleFallback(t *testing.T) {
 	tests := []struct {

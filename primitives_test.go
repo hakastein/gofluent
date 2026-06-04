@@ -8,6 +8,23 @@ import (
 
 // Ported from primitives_test.js.
 
+// TestUnicodeEscapeOutOfRange covers a \U escape whose codepoint exceeds the
+// Unicode maximum (U+10FFFF). It must render as U+FFFD REPLACEMENT CHARACTER
+// without panicking, and parsing must continue normally afterwards.
+func TestUnicodeEscapeOutOfRange(t *testing.T) {
+	// \U110000 is one past the maximum valid codepoint U+10FFFF.
+	b := newTestBundle(t, "x = { \"\\U110000\" }\nnext = After\n")
+
+	got, errs := format(t, b, "x", nil)
+	assert.Equal(t, "�", got, "an out-of-range \\U escape becomes U+FFFD")
+	assert.Empty(t, errs)
+
+	// Parsing continued past the broken escape: the next entry is intact.
+	got, errs = format(t, b, "next", nil)
+	assert.Equal(t, "After", got)
+	assert.Empty(t, errs)
+}
+
 func TestPrimitiveNumbers(t *testing.T) {
 	src := "one     = { 1 }\n" +
 		"select  = { 1 ->\n" +
