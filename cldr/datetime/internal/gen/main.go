@@ -8,6 +8,12 @@
 //
 //	go generate ./cldr/datetime/...
 //
+// The CLDR input location is taken from the CLDR_DATA environment variable
+// (the path to a node_modules tree containing cldr-dates-full, cldr-numbers-full
+// and cldr-core). When CLDR_DATA is unset it falls back to the checked-in
+// .reference copy so host behaviour is unchanged. The -dates/-numbers/-core
+// flags still override the individual derived subdirectories.
+//
 // The generated file contains, per locale:
 //   - month / day / era / dayPeriod / quarter names (all width variants),
 //   - dateFormats / timeFormats / dateTimeFormats (incl. the availableFormats
@@ -33,15 +39,36 @@ import (
 	"strings"
 )
 
+// defaultCLDRData is the host fallback location of the CLDR node_modules tree,
+// used when the CLDR_DATA environment variable is unset. The pinned Docker
+// toolchain sets CLDR_DATA to its own node_modules path; on the host it stays
+// empty and we use this checked-in .reference copy. Keeping this default means
+// host behaviour is unchanged when CLDR_DATA is not exported.
+const defaultCLDRData = "../../.reference/cldr-data/node_modules"
+
 func main() {
 	log.SetFlags(0)
-	datesDir := flag.String("dates", "", "path to cldr-dates-full/main")
-	numbersDir := flag.String("numbers", "", "path to cldr-numbers-full/main")
-	coreDir := flag.String("core", "", "path to cldr-core/supplemental")
+	datesDir := flag.String("dates", "", "path to cldr-dates-full/main (overrides $CLDR_DATA)")
+	numbersDir := flag.String("numbers", "", "path to cldr-numbers-full/main (overrides $CLDR_DATA)")
+	coreDir := flag.String("core", "", "path to cldr-core/supplemental (overrides $CLDR_DATA)")
 	outPath := flag.String("out", "tables_gen.go", "output Go file")
 	flag.Parse()
-	if *datesDir == "" || *numbersDir == "" || *coreDir == "" {
-		log.Fatal("-dates, -numbers and -core are required")
+
+	// Base node_modules dir: $CLDR_DATA when set, else the host default. The
+	// three per-package subdirectories are derived from it, but each can still
+	// be overridden individually via its flag.
+	base := os.Getenv("CLDR_DATA")
+	if base == "" {
+		base = defaultCLDRData
+	}
+	if *datesDir == "" {
+		*datesDir = filepath.Join(base, "cldr-dates-full", "main")
+	}
+	if *numbersDir == "" {
+		*numbersDir = filepath.Join(base, "cldr-numbers-full", "main")
+	}
+	if *coreDir == "" {
+		*coreDir = filepath.Join(base, "cldr-core", "supplemental")
 	}
 
 	numSys := loadNumberingSystems(filepath.Join(*coreDir, "numberingSystems.json"))

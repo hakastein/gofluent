@@ -2,12 +2,20 @@
 // Generates golden fixtures from Node's Intl.NumberFormat (full-ICU) for the
 // Go number package to assert against. Run with Node 22 (full ICU):
 //
-//   node cldr/number/internal/gen/fixtures.js > cldr/number/testdata/intl_numbers.json
+//   node cldr/number/internal/gen/fixtures.js
+//     (from any working directory — always writes to
+//      cldr/number/testdata/intl_numbers.json relative to this script)
+//
+// Normally invoked via `go generate ./cldr/number/...` which runs the
+// //go:generate directive in number.go.
 //
 // Each fixture is {locale, value, options, expected}. The Go test loads these
 // and asserts number.Format(locale, value, options) == expected.
 
 'use strict';
+
+const fs = require('fs');
+const path = require('path');
 
 const locales = [
   'en', 'en-IN', 'en-GB', 'de', 'fr', 'fr-CH', 'ru', 'ar', 'ar-EG', 'hi',
@@ -93,5 +101,6 @@ for (const l of ['en', 'de', 'ja']) {
   }
 }
 
-process.stdout.write(JSON.stringify(fixtures, null, 0));
-process.stderr.write(`generated ${fixtures.length} fixtures\n`);
+const outFile = path.join(__dirname, '..', '..', 'testdata', 'intl_numbers.json');
+fs.writeFileSync(outFile, JSON.stringify(fixtures, null, 0));
+process.stderr.write(`gen: wrote ${outFile} (${fixtures.length} fixtures)\n`);

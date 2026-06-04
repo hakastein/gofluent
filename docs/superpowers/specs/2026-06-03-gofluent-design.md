@@ -141,17 +141,29 @@ closer fluent.js parity with zero runtime dependencies.
 
 New packages (each stdlib-only, usable standalone):
 
-- `cldr/plural` — cardinal + ordinal rules generated from `cldr-core` (217 / 103 locales).
+- `cldr/plural` — cardinal + ordinal rules generated from `cldr-core` (219 / 104 locales).
   100% parity with `Intl.PluralRules` and with CLDR's own `@integer`/`@decimal` samples.
 - `cldr/number` — decimal / percent / currency formatting generated from
-  `cldr-numbers-full` + `cldr-core` currency data (710 locales). ~99.8% parity with
-  `Intl.NumberFormat` (residual is CLDR-45-vs-newer-ICU display-name skew).
-- `cldr/datetime` — date / time formatting generated from `cldr-dates-full` (710 locales):
+  `cldr-numbers-full` + `cldr-core` currency data (725 locales). **100% parity** with
+  `Intl.NumberFormat` over the fixture matrix.
+- `cldr/datetime` — date / time formatting generated from `cldr-dates-full` (725 locales):
   dateStyle/timeStyle from CLDR patterns plus skeleton best-match for component options.
-  `timeStyle` 100% vs `Intl.DateTimeFormat`; dateStyle/component ~92–93% (gap is mostly
-  non-Gregorian default calendars for `fa`/`th` and CLDR data-version skew).
+  `timeStyle` 100% vs `Intl.DateTimeFormat`; dateStyle/component ~93–94% (remaining gap is
+  structural — non-Gregorian default calendars for `fa`/`th` and skeleton best-match edge
+  cases — not a data-version issue).
 
 Each package ships committed `tables_gen.go` plus a build-ignored generator and Node-based
 golden-fixture producers. `fluentx` is now a thin adapter mapping the core option structs
 onto these packages. The whole module depends only on the Go standard library
 (`go.mod` has no `require` block).
+
+### Pinned generation toolchain (2026-06-04)
+
+Generation is **hermetic and version-locked**, not dependent on the host's Node. The CLDR
+release is pinned in two places that must agree: the Node image (its bundled ICU fixes the
+`Intl.*` golden fixtures) and the `cldr-*` npm packages (the JSON the Go generators read).
+Both are CLDR 46 (`node:22.15.0` → ICU 76.1 → CLDR 46.0; `cldr-*@46.0.0`), so generated
+tables and Intl fixtures agree by construction. `make gen` builds `gen/Dockerfile` and runs
+`go generate ./cldr/...` + tests inside it; the host never runs the generators. This closed
+the earlier CLDR-45-vs-host-ICU-46 number divergence (99.8% → 100%). The committed fixtures
+make `go test` itself host-independent; only regeneration needs the pinned image.

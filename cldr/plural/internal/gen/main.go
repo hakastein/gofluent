@@ -29,19 +29,33 @@ import (
 	"go/format"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 )
 
+// defaultCLDRData is the node_modules dir used when $CLDR_DATA is unset (the
+// checked-in host copy). The pinned Docker toolchain sets CLDR_DATA to its own
+// node_modules path, so host behaviour is unchanged when CLDR_DATA is absent.
+const defaultCLDRData = "../../.reference/cldr-data/node_modules"
+
 func main() {
 	log.SetFlags(0)
-	plularsPath := flag.String("plurals", "", "path to cldr-core supplemental/plurals.json")
-	ordinalsPath := flag.String("ordinals", "", "path to cldr-core supplemental/ordinals.json")
+	plularsPath := flag.String("plurals", "", "path to plurals.json (overrides $CLDR_DATA)")
+	ordinalsPath := flag.String("ordinals", "", "path to ordinals.json (overrides $CLDR_DATA)")
 	outPath := flag.String("out", "tables_gen.go", "output Go file")
 	flag.Parse()
-	if *plularsPath == "" || *ordinalsPath == "" {
-		log.Fatal("both -plurals and -ordinals are required")
+
+	base := os.Getenv("CLDR_DATA")
+	if base == "" {
+		base = defaultCLDRData
+	}
+	if *plularsPath == "" {
+		*plularsPath = filepath.Join(base, "cldr-core", "supplemental", "plurals.json")
+	}
+	if *ordinalsPath == "" {
+		*ordinalsPath = filepath.Join(base, "cldr-core", "supplemental", "ordinals.json")
 	}
 
 	cardinal := loadRules(*plularsPath, "plurals-type-cardinal")

@@ -24,12 +24,21 @@ import (
 )
 
 func main() {
-	cldr := flag.String("cldr", "", "path to node_modules containing cldr-numbers-full and cldr-core")
+	// Default CLDR base dir: honour $CLDR_DATA first, then fall back to the
+	// host-relative path that was hardcoded before this change so that running
+	// go generate without the env var continues to work on the host machine.
+	//
+	// go generate sets the working directory to the package directory
+	// (cldr/number/), which is two levels below the repo root where
+	// .reference/cldr-data lives.
+	defaultCLDR := os.Getenv("CLDR_DATA")
+	if defaultCLDR == "" {
+		defaultCLDR = filepath.Join("..", "..", ".reference", "cldr-data", "node_modules")
+	}
+
+	cldr := flag.String("cldr", defaultCLDR, "path to node_modules containing cldr-numbers-full and cldr-core")
 	out := flag.String("out", "tables_gen.go", "output file")
 	flag.Parse()
-	if *cldr == "" {
-		log.Fatal("gen: -cldr is required")
-	}
 
 	g := &generator{cldr: *cldr}
 	g.run()
@@ -403,8 +412,18 @@ func (g *generator) loadCurrencyDisplay(loc string) {
 	if len(curs) == 0 {
 		return
 	}
+	// Sort currency codes so pool indices are assigned deterministically across
+	// runs (Go map iteration order is random; without sorting, the currencyPool
+	// in the generated file shuffles on every run even with identical input).
+	curCodes := make([]string, 0, len(curs))
+	for code := range curs {
+		curCodes = append(curCodes, code)
+	}
+	sort.Strings(curCodes)
+
 	out := map[string]int{}
-	for code, fields := range curs {
+	for _, code := range curCodes {
+		fields := curs[code]
 		dc := displayCurrency{
 			symbol: fields["symbol"],
 			narrow: fields["symbol-alt-narrow"],

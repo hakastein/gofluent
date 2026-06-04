@@ -9,10 +9,25 @@
 //   node samples.js <plurals.json> <ordinals.json> <out.json>
 
 const fs = require('fs');
+const path = require('path');
 
-const plularsPath = process.argv[2];
-const ordinalsPath = process.argv[3];
-const outPath = process.argv[4];
+// Two call forms:
+//   node samples.js <plurals.json> <ordinals.json> <out.json>   (explicit paths)
+//   node samples.js <out.json>                                   (paths from $CLDR_DATA)
+// In the second form the CLDR base is $CLDR_DATA (the pinned Docker toolchain's
+// node_modules), falling back to the checked-in host copy so host runs still work.
+let plularsPath, ordinalsPath, outPath;
+if (process.argv.length >= 5) {
+  plularsPath = process.argv[2];
+  ordinalsPath = process.argv[3];
+  outPath = process.argv[4];
+} else {
+  const base = process.env.CLDR_DATA ||
+    path.resolve(__dirname, '../../../../.reference/cldr-data/node_modules');
+  plularsPath = path.join(base, 'cldr-core', 'supplemental', 'plurals.json');
+  ordinalsPath = path.join(base, 'cldr-core', 'supplemental', 'ordinals.json');
+  outPath = process.argv[2];
+}
 
 function fracDigits(s) {
   const dot = s.indexOf('.');

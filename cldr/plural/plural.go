@@ -19,7 +19,11 @@ import (
 	"strings"
 )
 
-//go:generate go run ./internal/gen/main.go -plurals ../../.reference/cldr-data/node_modules/cldr-core/supplemental/plurals.json -ordinals ../../.reference/cldr-data/node_modules/cldr-core/supplemental/ordinals.json -out tables_gen.go
+// CLDR input paths come from $CLDR_DATA (set by the pinned gen image), falling
+// back to the checked-in host copy. Run via `make gen`; never on the host.
+//go:generate go run ./internal/gen/main.go -out tables_gen.go
+//go:generate node internal/gen/samples.js testdata/cldr_samples.json
+//go:generate node internal/gen/intl.js testdata/intl_plurals.json
 
 // Category is a CLDR plural category.
 type Category string

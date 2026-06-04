@@ -20,7 +20,8 @@ import (
 	"unicode"
 )
 
-//go:generate go run ./internal/gen/main.go -cldr ../../.reference/cldr-data/node_modules -out tables_gen.go
+//go:generate go run ./internal/gen/main.go -out tables_gen.go
+//go:generate node internal/gen/fixtures.js
 
 // Options mirrors the subset of Intl.NumberFormatOptions used by fluent.js. It
 // is a value copy of the core fluent.NumberOptions field set, kept here so the

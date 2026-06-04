@@ -115,10 +115,20 @@ val, _ := l10n.FormatValue("greeting", nil) // "Hallo", falling back to "en" if 
 ## Regenerating CLDR data
 
 The `cldr/*` packages ship generated tables (`tables_gen.go`) committed to the repo, so
-nothing is fetched at build time. To regenerate against a newer CLDR release, fetch the
-CLDR JSON (`npm install cldr-core cldr-numbers-full cldr-dates-full`), point the
-`//go:generate` directives at it, and run `go generate ./cldr/...`. The golden-fixture
-tests are produced from Node's `Intl.*`, so a working Node install reproduces them.
+nothing is fetched at build time. Regeneration runs in a **pinned Docker toolchain**
+(`gen/`) — never on the host — so the generated tables and the golden `Intl.*` fixtures
+always describe the **same CLDR release**:
+
+```sh
+make gen
+```
+
+This builds `gen/Dockerfile` (a digest-pinned `node:22.15.0` → ICU 76 → **CLDR 46**, plus
+`cldr-*@46` JSON from `gen/package.json` and the Go toolchain) and runs
+`go generate ./cldr/...` followed by the tests inside it. Both the Go generators (reading
+the CLDR JSON) and the Node `Intl.*` fixture dumps see one CLDR version, so there is no
+host-Node version skew. To move to a newer CLDR, bump the Node image and the `cldr-*`
+versions together and re-run `make gen`.
 
 ## Design
 
