@@ -4,12 +4,14 @@
 # generators or their Node fixture scripts on the host.
 
 GEN_IMAGE := gofluent-cldrgen
+# Keep in sync with .github/workflows/ci.yml.
+STATICCHECK_VERSION := 2026.1
 DOCKER_RUN := docker run --rm \
 	-v "$(CURDIR)":/work \
 	-u "$(shell id -u):$(shell id -g)" \
 	"$(GEN_IMAGE)"
 
-.PHONY: gen gen-image test vet fmt
+.PHONY: gen gen-image test vet fmt lint
 
 gen-image:        ## Build the pinned CLDR generation image
 	docker build --load -t "$(GEN_IMAGE)" gen
@@ -22,6 +24,11 @@ test:             ## Run the test suite (pure Go, zero deps — host is fine)
 
 vet:
 	go vet ./...
+
+lint:             ## go vet + staticcheck (pinned, matching CI) + gofmt check
+	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
+	@if [ -n "$$(gofmt -l .)" ]; then echo "gofmt needed in:"; gofmt -l .; exit 1; fi
 
 fmt:
 	gofmt -w .

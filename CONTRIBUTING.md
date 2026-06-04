@@ -28,6 +28,8 @@ go vet ./...
 staticcheck ./...        # https://staticcheck.dev
 ```
 
+Or run all of them at once with `make lint`.
+
 CI runs the same checks — plus `govulncheck` — on the floor Go version and the
 latest stable release.
 
