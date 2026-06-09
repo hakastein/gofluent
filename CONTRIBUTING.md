@@ -8,9 +8,11 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## Requirements
 
-- Go **1.26** or newer.
-- Docker — only for regenerating CLDR data. You do **not** need it for normal
-  development; the generated tables and fixtures are committed.
+- Go **1.23** or newer.
+
+CLDR formatting comes from the external
+[`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr) module
+(pulled in as a dependency), so there is nothing to generate in this repository.
 
 ## Building and testing
 
@@ -37,11 +39,11 @@ latest stable release.
 
 ### Match the reference implementation
 
-gofluent follows fluent.js and ECMA-402 `Intl.*`. When you change parsing or
-formatting behavior it must still agree with the reference. For formatting,
-**regenerate fixtures with `make gen`** instead of hand-editing expected values:
-if a golden value looks wrong, the fix usually belongs in the generator, not in
-the fixture.
+gofluent follows fluent.js and ECMA-402 `Intl.*`. When you change parsing
+behavior it must still agree with the reference. CLDR formatting (and its
+`Intl.*` golden fixtures) lives in the external
+[`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr) module;
+formatting fixes and fixture regeneration belong there, not in this repository.
 
 ### Tests
 
@@ -55,23 +57,6 @@ pattern):
 
 (`internal/conformance` stays `package conformance`: it has no base package and
 is already black-box against `syntax`.)
-
-### Generated code
-
-Files named `tables_gen.go` and everything under `cldr/*/testdata/` are
-**generated** — do not edit them by hand. Regenerate with:
-
-```sh
-make gen
-```
-
-This builds the pinned image in `gen/` (a digest-pinned Node image → a fixed ICU
-→ a fixed CLDR release, plus the Go toolchain) and runs `go generate ./cldr/...`
-followed by the tests inside it. Because both the Go generators and the Node
-`Intl.*` fixture dumps see one CLDR release, the tables and fixtures stay
-consistent. To move CLDR versions, bump the Node image and the `cldr-*` versions
-together in `gen/`, then re-run `make gen`. Never run the generators or their
-Node scripts on the host.
 
 ## Pull requests
 

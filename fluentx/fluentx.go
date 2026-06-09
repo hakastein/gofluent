@@ -2,11 +2,21 @@
 // pluggable formatting interfaces defined in the core fluent package
 // (fluent.PluralRules, fluent.NumberFormatter, fluent.DateTimeFormatter).
 //
-// It is backed by the module's self-contained cldr packages (cldr/plural,
-// cldr/number, cldr/datetime), which are generated directly from the Unicode
-// CLDR data and have ZERO external dependencies. Their output is validated
-// against Node's Intl, so fluentx matches JavaScript's Intl.* objects (and
-// therefore fluent.js). There is no dependency on golang.org/x/text.
+// It is backed by the external github.com/hakastein/gocldr module
+// (gocldr/plural, gocldr/number, gocldr/datetime), which is generated directly
+// from the Unicode CLDR data. Its output is validated against Node's Intl, so
+// fluentx matches JavaScript's Intl.* objects (and therefore fluent.js). There
+// is no dependency on golang.org/x/text.
+//
+// Locale data in gocldr is opt-in: a program links only the locales it imports.
+// Applications that format numbers or dates through fluentx MUST import the
+// locale data they need, for example:
+//
+//	import _ "github.com/hakastein/gocldr/locales/en"  // a single locale
+//	import _ "github.com/hakastein/gocldr/locales/all" // every locale
+//
+// With no locale data imported, formatting degrades gracefully (dates render as
+// RFC3339, numbers as ASCII root).
 //
 // The core fluent package is intentionally dependency-free and ships no-op
 // defaults; importing fluentx is the opt-in that wires real CLDR behavior. Plug

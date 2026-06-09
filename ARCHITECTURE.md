@@ -13,18 +13,20 @@ are not obvious from the code. For build, test, and contribution mechanics, see
 ## Design goals
 
 1. **Spec fidelity.** The syntax layer matches the upstream Project Fluent
-   conformance fixtures; the CLDR formatters match Node's `Intl.*`. Where the
-   reference implementation and intuition disagree, the reference wins.
-2. **Dependency-free runtime.** Importing gofluent pulls in no third-party
-   packages (testify is a test-only dependency). This is a means, not an end —
-   see [Why generated CLDR tables](#why-generated-cldr-tables).
+   conformance fixtures; the CLDR formatters (in the external `gocldr` module)
+   match Node's `Intl.*`. Where the reference implementation and intuition
+   disagree, the reference wins.
+2. **Dependency-free core.** The root `fluent` package and the runtime resolver
+   pull in no third-party packages at all (testify is a test-only dependency).
+   Only the `fluentx` adapter brings in a dependency — `github.com/hakastein/gocldr`
+   — and only for callers that opt into CLDR formatting.
 3. **Fault tolerance.** Given an error sink, the resolver never panics; it
    collects errors and renders fluent.js-style placeholders so a best-effort
    string is always produced.
 4. **Pluggable formatting.** The core depends on small interfaces
    (`PluralRules`, `NumberFormatter`, `DateTimeFormatter`), not on a concrete
-   CLDR implementation. The CLDR-backed implementations live in separate,
-   independently usable packages and are wired in through `fluentx`.
+   CLDR implementation. The CLDR-backed implementations live in the external
+   `gocldr` module and are wired in through `fluentx`.
 
 ## Package layout
 
@@ -32,10 +34,7 @@ are not obvious from the code. For build, test, and contribution mechanics, see
 | --- | --- |
 | `.` (`fluent`) | Runtime: the optimized FTL parser (`NewResource`), the fault-tolerant resolver, `Bundle` (one locale), builtins (`NUMBER`/`DATETIME`), and the formatting interfaces. |
 | `syntax` (+ `syntax/ast`) | Full AST, recursive-descent parser, serializer, and visitor — for tooling and the conformance suite. |
-| `cldr/plural` | CLDR cardinal and ordinal plural rules. Usable standalone. |
-| `cldr/number` | CLDR number / percent / currency formatting. Usable standalone. |
-| `cldr/datetime` | CLDR date / time formatting. Usable standalone. |
-| `fluentx` | Thin adapter wiring the `cldr/*` formatters into a `Bundle` (`fluentx.Options()`). |
+| `fluentx` | Thin adapter wiring the external `gocldr` formatters into a `Bundle` (`fluentx.Options()`). |
 | `langneg` | Language negotiation (port of `@fluent/langneg`). |
 | `localization` | Fallback layer over an ordered chain of locale bundles. |
 | `internal/conformance` | Runs the upstream Project Fluent fixtures. |
@@ -94,44 +93,33 @@ appear intentionally in source and test data, and the `staticcheck` check ST1018
 (which flags Unicode format characters in string literals) is disabled in
 `staticcheck.conf`.
 
-## Why generated CLDR tables
+## CLDR formatting lives in `gocldr`
 
-The `cldr/*` packages ship Go tables (`tables_gen.go`) generated from CLDR data
-rather than delegating to `golang.org/x/text`. This is the one place the project
-hand-rolls something a mature dependency already provides, and it is for a
-concrete reason: `x/text`'s number and date output **diverges from ECMA-402
-`Intl.*`**, which is exactly the behavior fluent.js produces. Matching fluent.js
-therefore means producing Intl-validated tables of our own.
+The CLDR-backed formatters are **not** in this repository. They live in the
+separate module [`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr),
+which gofluent depends on and which exposes `gocldr/plural`, `gocldr/number`, and
+`gocldr/datetime`. `fluentx` is a thin adapter that maps the core
+`fluent.*Options` structs onto the matching `gocldr` options and implements the
+`PluralRules` / `NumberFormatter` / `DateTimeFormatter` interfaces.
 
-"Doesn't fit" here means "exists but not to the required correctness," not "no
-package exists." Everywhere else the project prefers mature dependencies — the
-generation pipeline itself leans on the `cldr-*` npm packages (CLDR JSON), Node's
-`Intl.*` (golden fixtures), and Docker (a pinned toolchain).
+That module ships Go tables generated from CLDR data and validated against Node's
+`Intl.*` (rather than delegating to `golang.org/x/text`, whose number and date
+output diverges from ECMA-402 `Intl.*` — the behavior fluent.js produces). The
+generation pipeline, CLDR-version pinning, and the `Intl.*` golden fixtures all
+live in `gocldr`; see that module for the mechanics.
 
-### Generation pipeline
-
-`make gen` builds a pinned Docker image (`gen/`) and runs the generators inside
-it; they are never run on the host. A single image pins one CLDR release for both
-halves of the process:
-
-- The Go generators read the CLDR JSON and emit `tables_gen.go`.
-- Node's `Intl.*` dumps the golden fixtures under `testdata/`.
-
-Because both see the same CLDR version, the tables and the fixtures agree by
-construction. The committed `tables_gen.go` and `testdata/` keep `go test` itself
-host-independent. See [CONTRIBUTING.md](CONTRIBUTING.md) for the mechanics and
-CLDR-version bumps.
+`gocldr` locale data is **opt-in**: a program links only the locale packages it
+blank-imports (`gocldr/locales/<tag>`, a per-domain `.../locales/all`, or the
+cross-domain `gocldr/locales/all`). With nothing imported, `fluentx` formatting
+degrades gracefully — dates render as RFC3339, numbers as the ASCII root locale.
+gofluent's own tests/examples that format import `gocldr/locales/all`.
 
 ## Verification
 
 The guard against generated-code rot is verification, not trust:
 
 - **Syntax** is checked against the upstream Project Fluent conformance fixtures
-  (`internal/conformance`).
-- **Plural rules** are checked against `Intl.PluralRules`.
-- **Number formatting** is checked against `Intl.NumberFormat`.
-- **Date/time formatting** is checked against `Intl.DateTimeFormat` golden
-  fixtures dumped from Node, covering dateStyle/timeStyle, component options,
-  flexible day periods (the `dayPeriod` / `B` field), and time-zone names.
-
-All of it runs under `go test ./...`.
+  (`internal/conformance`), under `go test ./...`.
+- **CLDR formatting** (plural rules, number, and date/time) is checked against
+  `Intl.PluralRules`, `Intl.NumberFormat`, and `Intl.DateTimeFormat` golden
+  fixtures in the `gocldr` module's own test suite.

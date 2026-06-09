@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/hakastein/gocldr/locales/all" // opt-in CLDR locale data for the formatting tests
 	fluent "github.com/hakastein/gofluent"
 	"github.com/hakastein/gofluent/fluentx"
 	"github.com/stretchr/testify/assert"
@@ -122,7 +123,7 @@ func TestPluralSignificantDigits(t *testing.T) {
 
 func TestFormatNumber(t *testing.T) {
 	nf := fluentx.NewNumberFormatter()
-	// The CLDR group separators emitted by cldr/number (matching Intl): French
+	// The CLDR group separators emitted by gocldr/number (matching Intl): French
 	// uses a narrow no-break space (U+202F); Russian uses a no-break space
 	// (U+00A0). Currency amounts that place the symbol after the digits insert a
 	// no-break space (U+00A0) between them, exactly as Intl does.

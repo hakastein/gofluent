@@ -1,8 +1,11 @@
 module github.com/hakastein/gofluent
 
-go 1.26
+go 1.23
 
-require github.com/stretchr/testify v1.11.1
+require (
+	github.com/hakastein/gocldr v0.1.1
+	github.com/stretchr/testify v1.11.1
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

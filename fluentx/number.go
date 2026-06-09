@@ -1,13 +1,13 @@
 package fluentx
 
 import (
+	"github.com/hakastein/gocldr/number"
 	"github.com/hakastein/gofluent"
-	"github.com/hakastein/gofluent/cldr/number"
 )
 
 // NumberFormatter is a CLDR-backed implementation of fluent.NumberFormatter
-// built on the self-contained cldr/number package (no external dependencies).
-// It renders decimals, percents and currency amounts with locale-aware
+// built on the gocldr/number package. It renders decimals, percents and
+// currency amounts with locale-aware
 // grouping, decimal separators and currency symbols, matching JavaScript's
 // Intl.NumberFormat (and therefore fluent.js).
 type NumberFormatter struct{}
@@ -23,10 +23,10 @@ func (NumberFormatter) FormatNumber(locale string, n float64, opts fluent.Number
 	return number.Format(locale, n, numberOptions(opts))
 }
 
-// numberOptions maps the core fluent.NumberOptions onto cldr/number.Options. The
-// two structs share field names; this is a straight field-by-field copy of the
-// fields cldr/number understands. (fluent's Unit/UnitDisplay/Type fields have no
-// cldr/number counterpart and are not number-rendering concerns here.)
+// numberOptions maps the core fluent.NumberOptions onto gocldr/number.Options.
+// The two structs share field names; this is a straight field-by-field copy of
+// the fields gocldr/number understands. (fluent's Unit/UnitDisplay/Type fields
+// have no gocldr/number counterpart and are not number-rendering concerns here.)
 func numberOptions(opts fluent.NumberOptions) number.Options {
 	return number.Options{
 		Style:                    opts.Style,

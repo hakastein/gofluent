@@ -11,9 +11,10 @@ localization system for natural-sounding translations.
 gofluent is a port of the reference JavaScript implementation
 ([`@fluent/syntax`](https://github.com/projectfluent/fluent.js) and
 `@fluent/bundle`). Locale-aware formatting (plural rules, numbers, dates) is
-exposed through **pluggable interfaces**; the CLDR-backed implementations live in
-separate `cldr/*` packages, generated from CLDR data and validated against Node's
-`Intl.*`.
+exposed through **pluggable interfaces**; the CLDR-backed implementations come
+from the separate [`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr)
+module (generated from CLDR data and validated against Node's `Intl.*`), wired in
+through the `fluentx` adapter.
 
 > **Status:** pre-1.0. The library is feature-complete and tested against the
 > upstream conformance and `Intl.*` suites, but the public API may still change
@@ -25,7 +26,16 @@ separate `cldr/*` packages, generated from CLDR data and validated against Node'
 go get github.com/hakastein/gofluent
 ```
 
-Requires Go 1.26 or newer.
+Requires Go 1.23 or newer.
+
+CLDR-backed formatting (plurals, numbers, dates) now comes from the separate
+[`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr) module, pulled
+in automatically as a dependency. Its locale data is **opt-in**: an application
+that formats numbers or dates must blank-import the locale data it needs —
+`import _ "github.com/hakastein/gocldr/locales/en"` for a single locale, or
+`import _ "github.com/hakastein/gocldr/locales/all"` for every locale. With no
+locale data imported, formatting degrades gracefully (dates render as RFC3339,
+numbers as ASCII root).
 
 ## Packages
 
@@ -33,10 +43,7 @@ Requires Go 1.26 or newer.
 | --- | --- |
 | `github.com/hakastein/gofluent` | Runtime: fast FTL parser, fault-tolerant resolver, `Bundle` (one locale). |
 | `.../syntax` (+ `.../syntax/ast`) | Full AST, recursive-descent parser, serializer, visitor — for tooling. |
-| `.../fluentx` | Wires the `cldr/*` formatters into a `Bundle` via `fluentx.Options()`. |
-| `.../cldr/plural` | CLDR cardinal & ordinal plural rules (217 / 103 locales). Usable standalone. |
-| `.../cldr/number` | CLDR number / percent / currency formatting (710 locales). Usable standalone. |
-| `.../cldr/datetime` | CLDR date / time formatting (710 locales). Usable standalone. |
+| `.../fluentx` | Wires the [`gocldr`](https://github.com/hakastein/gocldr) formatters into a `Bundle` via `fluentx.Options()`. |
 | `.../langneg` | Language negotiation (port of `@fluent/langneg`). |
 | `.../localization` | High-level fallback layer over an ordered chain of locale bundles. |
 
@@ -69,30 +76,24 @@ A `Bundle` is safe for concurrent use: `FormatPattern` / `FormatPatternAny`,
 ## Locale-aware formatting
 
 Wire the CLDR-backed formatters from `fluentx` to get correct plurals, number
-grouping, currency, and dates:
+grouping, currency, and dates. The CLDR data is opt-in, so blank-import the
+locales you need (here, every locale via `.../locales/all`):
 
 ```go
 import (
     fluent "github.com/hakastein/gofluent"
     "github.com/hakastein/gofluent/fluentx"
+
+    _ "github.com/hakastein/gocldr/locales/all" // or .../locales/ru for just Russian
 )
 
 b := fluent.NewBundle("ru", fluentx.Options()...)
 b.AddResource(res) // { $n -> [one] ... [few] ... *[many] ... } now selects correctly
 ```
 
-The `cldr/*` packages are also usable on their own, independent of Fluent:
-
-```go
-import (
-    "github.com/hakastein/gofluent/cldr/number"
-    "github.com/hakastein/gofluent/cldr/plural"
-)
-
-number.Format("de", 1234.5, number.Options{})                                  // "1.234,5"
-number.Format("en", 1234, number.Options{Style: "currency", Currency: "USD"})  // "$1,234.00"
-plural.CardinalFor("ru", 2, 0, 0)                                              // plural.Few
-```
+The underlying [`gocldr`](https://github.com/hakastein/gocldr) formatters are also
+usable on their own, independent of Fluent (`gocldr/number`, `gocldr/plural`,
+`gocldr/datetime`); see that module's documentation.
 
 ## Localization with fallback
 
@@ -128,38 +129,13 @@ to executable references, all run under `go test ./...`:
 - The **syntax** parser and serializer are checked against the upstream Project
   Fluent conformance fixtures (62/62 structure, 35/36 reference — the single skip
   matches fluent.js).
-- The **CLDR formatters** are checked against Node's `Intl.*`: `Intl.PluralRules`
-  (full parity), `Intl.NumberFormat` (full parity), and `Intl.DateTimeFormat`
-  via golden fixtures covering dateStyle/timeStyle, component options, flexible
-  day periods (the `dayPeriod` option / `B` field — "in the afternoon"), and
-  time-zone names (specific `EDT` / `Eastern Daylight Time`, generic
-  `ET` / `Eastern Time`, location `United Kingdom Time` / `Sydney Time`, and
-  numeric `GMT±HH:mm` offsets).
-
-The one standing gap is the two matrix locales `fa` and `th`, which default to
-non-Gregorian calendars (Persian, Buddhist) that this package does not implement;
-excluding those, day-period and zone-name resolution match `Intl` essentially
-exactly.
+- The **CLDR formatters** live in
+  [`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr) and are
+  checked there against Node's `Intl.*` (`Intl.PluralRules`, `Intl.NumberFormat`,
+  and `Intl.DateTimeFormat` golden fixtures).
 
 Read the code and the tests, not just the prose — [ARCHITECTURE.md](ARCHITECTURE.md)
 explains the design and where each guarantee is enforced.
-
-## Regenerating CLDR data
-
-The `cldr/*` packages ship generated tables (`tables_gen.go`) committed to the
-repo, so nothing is fetched at build time. Regeneration runs in a **pinned Docker
-toolchain** (`gen/`) — never on the host — so the generated tables and the golden
-`Intl.*` fixtures always describe the **same CLDR release**:
-
-```sh
-make gen
-```
-
-This builds `gen/Dockerfile` (a digest-pinned `node:22.15.0` → ICU 76 →
-**CLDR 46**, plus `cldr-*@46` JSON from `gen/package.json` and the Go toolchain)
-and runs `go generate ./cldr/...` followed by the tests inside it. To move to a
-newer CLDR, bump the Node image and the `cldr-*` versions together and re-run
-`make gen`. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Contributing
 

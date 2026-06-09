@@ -3,13 +3,13 @@ package fluentx
 import (
 	"time"
 
+	"github.com/hakastein/gocldr/datetime"
 	"github.com/hakastein/gofluent"
-	"github.com/hakastein/gofluent/cldr/datetime"
 )
 
 // DateTimeFormatter is a CLDR-backed implementation of fluent.DateTimeFormatter
-// built on the self-contained cldr/datetime package (standard-library time
-// only, no external dependencies). It renders fully localized dates and times
+// built on the gocldr/datetime package (standard-library time only). It renders
+// fully localized dates and times
 // from the Unicode CLDR data — month and weekday names, era and day-period
 // labels, locale field ordering and numbering systems — matching JavaScript's
 // Intl.DateTimeFormat (and therefore fluent.js) for the dateStyle/timeStyle
@@ -23,14 +23,14 @@ var _ fluent.DateTimeFormatter = (*DateTimeFormatter)(nil)
 
 // FormatDateTime renders t for the given locale honoring opts. The timeZone
 // option (an IANA name, e.g. "America/New_York") is applied via
-// time.LoadLocation by the underlying cldr/datetime package; an unknown zone
+// time.LoadLocation by the underlying gocldr/datetime package; an unknown zone
 // leaves the time unchanged.
 func (DateTimeFormatter) FormatDateTime(locale string, t time.Time, opts fluent.DateTimeOptions) string {
 	return datetime.Format(locale, t, datetimeOptions(opts))
 }
 
 // datetimeOptions maps the core fluent.DateTimeOptions onto
-// cldr/datetime.Options. The two structs mirror each other field-for-field, so
+// gocldr/datetime.Options. The two structs mirror each other field-for-field, so
 // this is a straight field-by-field copy.
 func datetimeOptions(opts fluent.DateTimeOptions) datetime.Options {
 	return datetime.Options{
