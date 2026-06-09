@@ -9,20 +9,29 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [Unreleased]
 
-### Changed
+## [0.1.0] - 2026-06-09
 
-- Lowered the minimum supported Go version from 1.26 to **1.23**.
-
-### Fixed
-
-- Resolved all `staticcheck` diagnostics across the module.
+Initial public release. Requires Go 1.23 or newer.
 
 ### Added
 
-- Apache-2.0 `LICENSE` and `NOTICE`.
-- Project governance and documentation: `CONTRIBUTING.md`, `ARCHITECTURE.md`,
-  `CODE_OF_CONDUCT.md`, `SECURITY.md`, issue and pull-request templates,
-  Dependabot configuration, and a hardened CI workflow (vet, build, race tests,
-  `gofmt`, `staticcheck`, `govulncheck`).
+- FTL parser and a fault-tolerant resolver with a per-locale `Bundle`. The
+  resolver never panics given an error sink; it collects errors and renders
+  fluent.js-style placeholders. Placeables are wrapped in Unicode bidi isolation
+  marks by default (`WithUseIsolating`).
+- `syntax` package (with `syntax/ast`): full AST, recursive-descent parser,
+  serializer, and visitor, verified against the upstream Project Fluent
+  conformance fixtures.
+- CLDR-backed formatting validated against ECMA-402 `Intl.*`, each package usable
+  standalone: `cldr/plural` (cardinal and ordinal rules), `cldr/number` (decimal,
+  percent, currency), and `cldr/datetime` (date/time, flexible day periods, and
+  time-zone names).
+- `fluentx` to wire the CLDR formatters into a `Bundle`; `langneg` for language
+  negotiation; and `localization` for message fallback across an ordered chain of
+  locales.
+- Apache-2.0 license and project governance: contributing guide, architecture
+  overview, code of conduct, security policy, and a CI pipeline running vet,
+  build, race tests, `gofmt`, `staticcheck`, and `govulncheck`.
 
-[Unreleased]: https://github.com/hakastein/gofluent/commits/main
+[Unreleased]: https://github.com/hakastein/gofluent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/hakastein/gofluent/releases/tag/v0.1.0
