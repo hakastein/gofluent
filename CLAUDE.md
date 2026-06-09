@@ -18,11 +18,11 @@ durable documentation lives in the standard places — read those first:
   `go test ./...`. When in doubt, trust the tests over the prose.
 - **Match fluent.js / `Intl.*`.** Behavior follows the reference implementation.
   Changes to parsing/resolving must keep the conformance fixtures green.
-- **CLDR formatting lives in `github.com/hakastein/gocldr`.** gofluent no longer
-  vendors `cldr/` or `gen/`; it depends on the external `gocldr` module, which
-  `fluentx` adapts into a `Bundle`. The CLDR tables, their generation toolchain,
-  and the `Intl.*` golden fixtures all live in that repo. Applications opt into
-  locale data there via `gocldr/locales/<tag>` or `gocldr/locales/all`.
+- **CLDR formatting lives in `github.com/hakastein/gocldr`.** CLDR formatting
+  comes from the external `github.com/hakastein/gocldr` module, which `fluentx`
+  adapts into a `Bundle`. The CLDR tables, their generation toolchain, and the
+  `Intl.*` golden fixtures all live in that repo. Applications opt into locale
+  data via `gocldr/locales/<tag>` or `gocldr/locales/all`.
 - **Tests are black-box.** External `_test` packages, exported API only, testify,
   table-driven via `t.Run`. No test-only seams in production code.
 - **Keep checks green.** `gofmt -l .`, `go vet ./...`, `staticcheck ./...`, and

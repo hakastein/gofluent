@@ -28,10 +28,10 @@ go get github.com/hakastein/gofluent
 
 Requires Go 1.23 or newer.
 
-CLDR-backed formatting (plurals, numbers, dates) now comes from the separate
-[`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr) module, pulled
-in automatically as a dependency. Its locale data is **opt-in**: an application
-that formats numbers or dates must blank-import the locale data it needs —
+CLDR-backed formatting (plurals, numbers, dates) comes from the
+[`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr) module (a
+dependency). Its locale data is **opt-in**: an application that formats numbers
+or dates must blank-import the locale data it needs —
 `import _ "github.com/hakastein/gocldr/locales/en"` for a single locale, or
 `import _ "github.com/hakastein/gocldr/locales/all"` for every locale. With no
 locale data imported, formatting degrades gracefully (dates render as RFC3339,
@@ -88,7 +88,7 @@ import (
 )
 
 b := fluent.NewBundle("ru", fluentx.Options()...)
-b.AddResource(res) // { $n -> [one] ... [few] ... *[many] ... } now selects correctly
+b.AddResource(res) // { $n -> [one] ... [few] ... *[many] ... } selects correctly
 ```
 
 The underlying [`gocldr`](https://github.com/hakastein/gocldr) formatters are also

@@ -175,7 +175,7 @@ func TestFormatDateTime(t *testing.T) {
 		opts   fluent.DateTimeOptions
 		want   string
 	}{
-		// Now backed by real CLDR data: month/weekday names are localized and the
+		// Backed by real CLDR data: month/weekday names are localized and the
 		// dateStyle+timeStyle combiner uses the locale's "at" connector (Intl).
 		{"en full date / short time", "en", fluent.DateTimeOptions{DateStyle: "full", TimeStyle: "short"}, "Thursday, January 5, 2023 at 2:09 PM"},
 		{"en long date / medium time 24h", "en", fluent.DateTimeOptions{DateStyle: "long", TimeStyle: "medium", Hour12: boolp(false)}, "January 5, 2023 at 14:09:07"},
@@ -183,7 +183,7 @@ func TestFormatDateTime(t *testing.T) {
 		{"en components y/m/d", "en", fluent.DateTimeOptions{Year: "numeric", Month: "long", Day: "2-digit"}, "January 05, 2023"},
 		{"en components h:m 24h", "en", fluent.DateTimeOptions{Hour: "2-digit", Minute: "2-digit", Hour12: boolp(false)}, "14:09"},
 		{"en components weekday short", "en", fluent.DateTimeOptions{Weekday: "short"}, "Thu"},
-		// Localized long dates now work across locales (Intl).
+		// Localized long dates work across locales (Intl).
 		{"de long date", "de", fluent.DateTimeOptions{DateStyle: "long"}, "5. Januar 2023"},
 		{"fr long date", "fr", fluent.DateTimeOptions{DateStyle: "long"}, "5 janvier 2023"},
 		{"de full date", "de", fluent.DateTimeOptions{DateStyle: "full"}, "Donnerstag, 5. Januar 2023"},
