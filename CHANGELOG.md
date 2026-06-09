@@ -9,6 +9,8 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-09
+
 ### Changed
 
 - **CLDR formatting is now the default in the core `fluent` package.**
@@ -71,6 +73,7 @@ Initial public release. Requires Go 1.26 or newer.
   overview, code of conduct, security policy, and a CI pipeline running vet,
   build, race tests, `gofmt`, `staticcheck`, and `govulncheck`.
 
-[Unreleased]: https://github.com/hakastein/gofluent/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hakastein/gofluent/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hakastein/gofluent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hakastein/gofluent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hakastein/gofluent/releases/tag/v0.1.0
