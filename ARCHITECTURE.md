@@ -16,25 +16,27 @@ are not obvious from the code. For build, test, and contribution mechanics, see
    conformance fixtures; the CLDR formatters (in the external `gocldr` module)
    match Node's `Intl.*`. Where the reference implementation and intuition
    disagree, the reference wins.
-2. **Dependency-free core.** The root `fluent` package and the runtime resolver
-   pull in no third-party packages at all (testify is a test-only dependency).
-   Only the `fluentx` adapter brings in a dependency — `github.com/hakastein/gocldr`
-   — and only for callers that opt into CLDR formatting.
+2. **Intl-faithful defaults.** The root `fluent` package wires CLDR-backed
+   formatting into every bundle by default, matching ECMA-402 `Intl.*` (and
+   therefore fluent.js) out of the box. To do so it depends directly on
+   `github.com/hakastein/gocldr`; the `langneg` subpackage remains
+   standalone (stdlib-only), and testify is a test-only dependency.
 3. **Fault tolerance.** Given an error sink, the resolver never panics; it
    collects errors and renders fluent.js-style placeholders so a best-effort
    string is always produced.
-4. **Pluggable formatting.** The core depends on small interfaces
-   (`PluralRules`, `NumberFormatter`, `DateTimeFormatter`), not on a concrete
-   CLDR implementation. The CLDR-backed implementations live in the external
-   `gocldr` module and are wired in through `fluentx`.
+4. **Pluggable formatting.** The core formats against small interfaces
+   (`PluralRules`, `NumberFormatter`, `DateTimeFormatter`). The default
+   implementations are CLDR-backed — they adapt the external `gocldr` module
+   in `format_cldr.go` and are installed by `NewBundle` — but a caller can
+   replace any of them per bundle with `WithPluralRules` / `WithNumberFormatter`
+   / `WithDateTimeFormatter`.
 
 ## Package layout
 
 | Package | Role |
 | --- | --- |
-| `.` (`fluent`) | Runtime: the optimized FTL parser (`NewResource`), the fault-tolerant resolver, `Bundle` (one locale), builtins (`NUMBER`/`DATETIME`), and the formatting interfaces. |
+| `.` (`fluent`) | Runtime: the optimized FTL parser (`NewResource`), the fault-tolerant resolver, `Bundle` (one locale), builtins (`NUMBER`/`DATETIME`), the formatting interfaces, and their default CLDR-backed implementations (`format_cldr.go`) adapting `gocldr`. |
 | `syntax` (+ `syntax/ast`) | Full AST, recursive-descent parser, serializer, and visitor — for tooling and the conformance suite. |
-| `fluentx` | Thin adapter wiring the external `gocldr` formatters into a `Bundle` (`fluentx.Options()`). |
 | `langneg` | Language negotiation (port of `@fluent/langneg`). |
 | `localization` | Fallback layer over an ordered chain of locale bundles. |
 | `internal/conformance` | Runs the upstream Project Fluent fixtures. |
@@ -95,12 +97,13 @@ appear intentionally in source and test data, and the `staticcheck` check ST1018
 
 ## CLDR formatting lives in `gocldr`
 
-The CLDR-backed formatters are **not** in this repository. They live in the
+The CLDR tables themselves are **not** in this repository. They live in the
 separate module [`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr),
 which gofluent depends on and which exposes `gocldr/plural`, `gocldr/number`, and
-`gocldr/datetime`. `fluentx` is a thin adapter that maps the core
-`fluent.*Options` structs onto the matching `gocldr` options and implements the
-`PluralRules` / `NumberFormatter` / `DateTimeFormatter` interfaces.
+`gocldr/datetime`. The adaptation layer is in this repo: `format_cldr.go` holds
+the default `PluralRules` / `NumberFormatter` / `DateTimeFormatter`
+implementations, which map the core `fluent.*Options` structs onto the matching
+`gocldr` options. `NewBundle` installs them automatically.
 
 That module ships Go tables generated from CLDR data and validated against Node's
 `Intl.*` (rather than delegating to `golang.org/x/text`, whose number and date
@@ -108,11 +111,16 @@ output diverges from ECMA-402 `Intl.*` — the behavior fluent.js produces). The
 generation pipeline, CLDR-version pinning, and the `Intl.*` golden fixtures all
 live in `gocldr`; see that module for the mechanics.
 
-`gocldr` locale data is **opt-in**: a program links only the locale packages it
-blank-imports (`gocldr/locales/<tag>`, a per-domain `.../locales/all`, or the
-cross-domain `gocldr/locales/all`). With nothing imported, `fluentx` formatting
-degrades gracefully — dates render as RFC3339, numbers as the ASCII root locale.
-gofluent's own tests/examples that format import `gocldr/locales/all`.
+CLDR plural-category selection (one/few/many/…) is **always available**: the
+plural rule tables are compiled into `gocldr`'s engine independently of the
+`locales/*` data packages, so category selection is correct with nothing
+blank-imported. Only number/date **rendering** data is **opt-in**: a program
+links only the locale packages it blank-imports (`gocldr/locales/<tag>`, a
+per-domain `.../locales/all`, or the cross-domain `gocldr/locales/all`). With
+nothing imported, rendering degrades gracefully — dates render as RFC 3339,
+numbers as the ASCII root locale (grouped decimals) — while plural selection
+still works. gofluent's own tests/examples that format import
+`gocldr/locales/all`.
 
 ## Verification
 

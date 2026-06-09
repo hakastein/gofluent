@@ -81,33 +81,33 @@ func TestLiteralSelectors(t *testing.T) {
 	}
 }
 
-// TestNumberLiteralPluralCategoryDefault documents an adaptation from fluent.js.
-// In fluent.js, `{ 1 -> [one] A *[other] B }` selects "A" because Intl plural
-// rules categorize 1 as "one" in en-US. The dependency-free default PluralRules
-// returns "other" for everything, so the default variant "B" is selected here.
-// A real CLDR PluralRules (wired via WithPluralRules) would select "A".
-func TestNumberLiteralPluralCategoryDefault(t *testing.T) {
+// TestNumberLiteralPluralCategory mirrors fluent.js: `{ 1 -> [one] A *[other] B }`
+// selects "A" because CLDR plural rules categorize 1 as "one" in en-US. The
+// CLDR-backed default does this out of the box — the plural rule tables are
+// always linked, independent of which locale data is imported.
+func TestNumberLiteralPluralCategory(t *testing.T) {
 	src := "foo = { 1 ->\n    [one] A\n   *[other] B\n}\n"
+
 	b := newTestBundle(t, src)
 	got, errs := format(t, b, "foo", nil)
-	assert.Equal(t, "B", got, "default plural rules select the other variant")
+	assert.Equal(t, "A", got, "CLDR default selects the one category")
 	assert.Empty(t, errs)
 
-	// With a stub CLDR-like ruleset, the "one" category matches.
-	b2 := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(enPluralRules{}))
+	// WithPluralRules overrides the default: this stub reports "other" for every
+	// number, so the *[other] variant "B" is selected instead.
+	b2 := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(otherOnlyPluralRules{}))
 	b2.AddResource(mustParse(t, src))
 	got2, _ := format(t, b2, "foo", nil)
-	assert.Equal(t, "A", got2, "with plural rules the one category matches")
+	assert.Equal(t, "B", got2, "override forces the other category")
 }
 
-// enPluralRules is a minimal English cardinal ruleset used to exercise the
-// pluggable PluralRules hook.
-type enPluralRules struct{}
+// otherOnlyPluralRules is a stub reporting the "other" category for every number,
+// used to exercise the WithPluralRules override hook.
+type otherOnlyPluralRules struct{}
 
-func (enPluralRules) Cardinal(_ string, n float64, _ fluent.NumberOptions) string {
-	if n == 1 {
-		return "one"
-	}
+func (otherOnlyPluralRules) Cardinal(_ string, _ float64, _ fluent.NumberOptions) string {
 	return "other"
 }
-func (enPluralRules) Ordinal(_ string, _ float64, _ fluent.NumberOptions) string { return "other" }
+func (otherOnlyPluralRules) Ordinal(_ string, _ float64, _ fluent.NumberOptions) string {
+	return "other"
+}

@@ -11,9 +11,10 @@ load them into a per-locale `Bundle`, and format messages whose plurals,
 numbers, and dates follow the rules of each language. gofluent ports the
 reference JavaScript implementation
 ([`@fluent/syntax`](https://github.com/projectfluent/fluent.js) and
-`@fluent/bundle`); the locale-aware formatting is wired in from the
-CLDR-backed [`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr)
-module (validated against Node's `Intl.*`) through the `fluentx` adapter.
+`@fluent/bundle`); the locale-aware formatting is CLDR-backed by the
+[`github.com/hakastein/gocldr`](https://github.com/hakastein/gocldr)
+module (validated against Node's `Intl.*`) and wired into every bundle by
+default.
 
 > **Status:** pre-1.0. The library is feature-complete and tested against the
 > upstream conformance and `Intl.*` suites, but the public API may still change
@@ -45,7 +46,6 @@ import (
 	_ "github.com/hakastein/gocldr/locales/ru" // Russian number + date data (see "Locale data")
 
 	fluent "github.com/hakastein/gofluent"
-	"github.com/hakastein/gofluent/fluentx"
 )
 
 const src = `
@@ -62,10 +62,10 @@ updated = Обновлено { DATETIME($at, dateStyle: "long") }
 func main() {
 	res, _ := fluent.NewResource(src)
 
-	// fluentx.Options() injects the CLDR plural rules, number, and date
-	// formatters. useIsolating is disabled here so the output is plain text;
+	// NewBundle wires the CLDR plural rules, number, and date formatters by
+	// default. useIsolating is disabled here so the output is plain text;
 	// the default (true) wraps placeables in Unicode bidi isolation marks.
-	b := fluent.NewBundle("ru", append(fluentx.Options(), fluent.WithUseIsolating(false))...)
+	b := fluent.NewBundle("ru", fluent.WithUseIsolating(false))
 	b.AddResource(res)
 
 	apples, _ := b.GetMessage("apples")
@@ -98,7 +98,7 @@ The number `1 234 567` is grouped with no-break spaces and the date reads
 select picks `[one]` for 1 and 21, `[few]` for 2, and the default `*[many]` for
 5, following CLDR's Russian cardinal rules.
 
-The same shape works for English — `fluent.NewBundle("en", fluentx.Options()...)`
+The same shape works for English — `fluent.NewBundle("en")`
 with an FTL whose select uses English's `[one]`/`*[other]` categories.
 
 ## How it works
@@ -114,15 +114,15 @@ with an FTL whose select uses English's `[one]`/`*[other]` categories.
 4. **`NUMBER($n)`** and **`DATETIME($d)`** format their argument through the
    bundle's `NumberFormatter` / `DateTimeFormatter`, honoring options such as
    `dateStyle: "long"` or `useGrouping`.
-5. `fluentx.Options()` is what supplies those three formatters — it wires the
-   CLDR-backed implementations (`fluentx.NewPluralRules()`,
-   `NewNumberFormatter()`, `NewDateTimeFormatter()`) into the bundle via
+5. `fluent.NewBundle` installs those three formatters — the CLDR-backed plural
+   rules, number, and date implementations — **by default**, matching
+   ECMA-402 `Intl.*` (and therefore fluent.js). No opt-in step is needed. To
+   override the default for a bundle, pass your own implementation through
    `fluent.WithPluralRules` / `WithNumberFormatter` / `WithDateTimeFormatter`.
 
-The core `fluent` package is dependency-free and ships **no-op** formatters by
-default; without `fluentx` a numeric select matches by exact value and
-`NUMBER`/`DATETIME` pass values through untouched. Importing `fluentx` is the
-opt-in that turns on real locale behavior.
+CLDR-backed formatting is the default, so a bare `fluent.NewBundle("en")`
+already formats numbers, dates, and plurals locale-aware. The locale *data* that
+drives real number/date rendering is still opt-in — see "Locale data" below.
 
 The resolver is **fault-tolerant**: pass a `*[]error` sink to `FormatPattern` /
 `FormatPatternAny` (or `nil` to panic on the first error). In collect mode it
@@ -178,7 +178,6 @@ import (
 	_ "github.com/hakastein/gocldr/locales/en"
 	_ "github.com/hakastein/gocldr/locales/ru"
 
-	"github.com/hakastein/gofluent/fluentx"
 	"github.com/hakastein/gofluent/localization"
 )
 
@@ -195,7 +194,6 @@ l10n, _ := localization.NewFromLocales(
 	"en",                  // default / ultimate fallback
 	[]string{"main"},      // resource ids (file basenames)
 	loader,
-	fluentx.Options()...,  // forwarded to every per-locale bundle
 )
 
 // Walks the negotiated chain (ru, then en) and returns the first match.
@@ -203,10 +201,10 @@ val, _ := l10n.FormatValue("apples", map[string]any{"n": 5}) // "5 яблок"
 ```
 
 `NewFromLocales` negotiates the requested locales against the ones you ship,
-builds one `Bundle` per negotiated locale (forwarding the `fluentx` options to
-each), and resolves a message from the first bundle in the chain that defines
-it. Missing files and parse errors are non-fatal: the failing resource is
-skipped and the rest of the chain still works.
+builds one `Bundle` per negotiated locale (each with the default CLDR-backed
+formatters), and resolves a message from the first bundle in the chain that
+defines it. Missing files and parse errors are non-fatal: the failing resource
+is skipped and the rest of the chain still works.
 
 ## Packages
 
@@ -214,7 +212,6 @@ skipped and the rest of the chain still works.
 | --- | --- |
 | `github.com/hakastein/gofluent` | Runtime: fast FTL parser, fault-tolerant resolver, `Bundle` (one locale). |
 | `.../syntax` (+ `.../syntax/ast`) | Full AST, recursive-descent parser, serializer, visitor — for tooling. |
-| `.../fluentx` | Wires the [`gocldr`](https://github.com/hakastein/gocldr) formatters into a `Bundle` via `fluentx.Options()`. |
 | `.../langneg` | Language negotiation (port of `@fluent/langneg`). |
 | `.../localization` | High-level fallback layer that loads `.ftl` files and formats across an ordered chain of locale bundles. |
 

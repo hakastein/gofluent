@@ -9,6 +9,27 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [Unreleased]
 
+### Changed
+
+- **CLDR formatting is now the default in the core `fluent` package.**
+  `NewBundle` wires the gocldr-backed number, date and plural formatters
+  automatically, so a bare `fluent.NewBundle(locale, …)` formats locale-aware
+  output (matching `Intl.*`) out of the box. The core package now depends
+  directly on `github.com/hakastein/gocldr`. Locale data is still opt-in —
+  blank-import the locale data you format
+  (`import _ "github.com/hakastein/gocldr/locales/en"`, or `.../locales/all`);
+  with none imported, numbers fall back to the CLDR root and dates to RFC 3339.
+
+### Removed
+
+- The `fluentx` package (`fluentx.Options`, `fluentx.NewPluralRules`,
+  `fluentx.NewNumberFormatter`, `fluentx.NewDateTimeFormatter`). Its adapter now
+  lives inside the core `fluent` package as the default formatters. Migrate
+  `fluent.NewBundle("xx", fluentx.Options()...)` to `fluent.NewBundle("xx")`;
+  to add other options, drop the `append(fluentx.Options(), …)...` wrapper and
+  pass them directly, e.g.
+  `fluent.NewBundle("xx", fluent.WithUseIsolating(false))`.
+
 ## [0.2.0]
 
 ### Changed

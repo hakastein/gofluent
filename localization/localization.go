@@ -8,8 +8,9 @@
 // built eagerly.
 //
 // This package depends only on the core fluent package and the standard
-// library; it does not import fluentx. Callers wire pluggable formatters by
-// passing fluent.BundleOption values through to the bundle builders.
+// library. Bundles inherit the core's default CLDR formatters; callers can
+// override them (or set other options) by passing fluent.BundleOption values
+// through to the bundle builders.
 package localization
 
 import (
@@ -60,8 +61,8 @@ func (l *Localization) Bundles() []*fluent.Bundle {
 // resourceID through loader and AddResource-ing it. Bundles are returned in
 // negotiated (priority) order.
 //
-// bundleOpts are forwarded to every fluent.NewBundle call, so callers can wire
-// fluentx (or any other) formatters per bundle.
+// bundleOpts are forwarded to every fluent.NewBundle call, so callers can
+// override the default formatters (or set other options) per bundle.
 //
 // Loader and parse errors are collected and returned but are non-fatal: a
 // failing resource is skipped so the rest of the chain still works. A bundle is

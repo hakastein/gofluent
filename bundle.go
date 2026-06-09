@@ -80,7 +80,7 @@ func WithTransform(t TextTransform) BundleOption {
 	}
 }
 
-// WithNumberFormatter injects a NumberFormatter (replaces the no-op default).
+// WithNumberFormatter injects a NumberFormatter (replaces the CLDR-backed default).
 func WithNumberFormatter(f NumberFormatter) BundleOption {
 	return func(b *Bundle) {
 		if f != nil {
@@ -89,7 +89,7 @@ func WithNumberFormatter(f NumberFormatter) BundleOption {
 	}
 }
 
-// WithDateTimeFormatter injects a DateTimeFormatter (replaces the no-op default).
+// WithDateTimeFormatter injects a DateTimeFormatter (replaces the CLDR-backed default).
 func WithDateTimeFormatter(f DateTimeFormatter) BundleOption {
 	return func(b *Bundle) {
 		if f != nil {
@@ -98,7 +98,7 @@ func WithDateTimeFormatter(f DateTimeFormatter) BundleOption {
 	}
 }
 
-// WithPluralRules injects a PluralRules implementation (replaces the no-op default).
+// WithPluralRules injects a PluralRules implementation (replaces the CLDR-backed default).
 func WithPluralRules(p PluralRules) BundleOption {
 	return func(b *Bundle) {
 		if p != nil {
@@ -120,7 +120,10 @@ func WithLocales(locales ...string) BundleOption {
 
 // NewBundle creates a Bundle for the given primary locale. useIsolating
 // defaults to true; NUMBER and DATETIME are always available; the three
-// formatters default to the dependency-free no-op implementations.
+// formatters default to the CLDR-backed implementations (matching Intl.*).
+// Applications must blank-import the locale data they format, e.g.
+// import _ "github.com/hakastein/gocldr/locales/ru" (or .../locales/all);
+// with none imported, formatting degrades to the CLDR root / RFC 3339.
 func NewBundle(locale string, opts ...BundleOption) *Bundle {
 	b := &Bundle{
 		locale:   locale,
@@ -133,9 +136,9 @@ func NewBundle(locale string, opts ...BundleOption) *Bundle {
 		},
 		useIsolating:      true,
 		transform:         func(s string) string { return s },
-		numberFormatter:   defaultNumberFormatter{},
-		dateTimeFormatter: defaultDateTimeFormatter{},
-		pluralRules:       defaultPluralRules{},
+		numberFormatter:   cldrNumberFormatter{},
+		dateTimeFormatter: cldrDateTimeFormatter{},
+		pluralRules:       cldrPluralRules{},
 	}
 	for _, opt := range opts {
 		opt(b)

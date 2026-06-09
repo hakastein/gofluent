@@ -90,8 +90,8 @@ func TestVariableDate(t *testing.T) {
 	b := newTestBundle(t, "foo = { $arg }\n")
 	arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
 	got, errs := format(t, b, "foo", map[string]any{"arg": arg})
-	// Default datetime formatter renders ISO-8601 UTC.
-	assert.Equal(t, "2016-09-29T00:00:00.000Z", got)
+	// CLDR default: en-US short date.
+	assert.Equal(t, "9/29/2016", got)
 	assert.Empty(t, errs)
 }
 

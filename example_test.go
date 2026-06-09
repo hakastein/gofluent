@@ -7,7 +7,6 @@ import (
 	_ "github.com/hakastein/gocldr/locales/ru" // opt-in CLDR data: Russian numbers + dates
 
 	fluent "github.com/hakastein/gofluent"
-	"github.com/hakastein/gofluent/fluentx"
 )
 
 // Example shows the minimal flow: parse a resource, add it to a bundle, look up
@@ -34,9 +33,10 @@ func Example() {
 	// Output: Hello, World!
 }
 
-// ExampleBundle_selectExpression demonstrates a select expression. Without a
-// real PluralRules implementation wired in, numeric selectors match by exact
-// value, so the variant key "1" is selected for the number 1.
+// ExampleBundle_selectExpression demonstrates a select expression. A numeric
+// selector matches a variant key by exact value before falling back to the CLDR
+// plural category, so the literal key "1" is selected for the number 1 while 5
+// falls through to *[other].
 func ExampleBundle_selectExpression() {
 	src := `
 emails =
@@ -58,9 +58,10 @@ emails =
 	// You have 5 new emails.
 }
 
-// ExampleBundle_pluralRussian wires the fluentx (CLDR) formatters into a Russian
-// bundle so the { $n -> [one] … [few] … *[many] … } select picks the correct
-// CLDR plural category, and NUMBER()/DATETIME() render with Russian conventions.
+// ExampleBundle_pluralRussian shows a Russian bundle: the { $n -> [one] … [few] …
+// *[many] … } select picks the correct CLDR plural category, and NUMBER()/
+// DATETIME() render with Russian conventions. CLDR formatting is the NewBundle
+// default, so no extra wiring is needed.
 //
 // The blank import _ "github.com/hakastein/gocldr/locales/ru" supplies Russian
 // number and date data; CLDR plural rules are always linked, so the category
@@ -81,9 +82,9 @@ updated = Обновлено { DATETIME($at, dateStyle: "long") }
 		panic(errs[0])
 	}
 
-	// fluentx.Options() injects the CLDR plural rules, number, and datetime
-	// formatters. useIsolating is disabled so the output is plain text.
-	b := fluent.NewBundle("ru", append(fluentx.Options(), fluent.WithUseIsolating(false))...)
+	// CLDR formatters are installed by default; useIsolating is disabled so the
+	// output is plain text.
+	b := fluent.NewBundle("ru", fluent.WithUseIsolating(false))
 	b.AddResource(res)
 
 	apples, _ := b.GetMessage("apples")

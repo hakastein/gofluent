@@ -12,12 +12,11 @@ import (
 
 // Ported from functions_builtin_test.js and functions_runtime_test.js.
 //
-// ADAPTATION: fluent.js asserts CLDR/Intl output such as "1,234" (grouping) and
-// "$1,234.00" (currency). The dependency-free default NumberFormatter does not
-// do locale grouping or currency symbols, so the numeric assertions below match
-// the DEFAULT formatter behavior (plain decimal honoring min/max fraction
-// digits). The option-merging, type dispatch, and error semantics are identical
-// to fluent.js.
+// NewBundle installs the CLDR-backed formatters by default, so the numeric and
+// date assertions below match fluent.js / Intl output (en-US grouping and short
+// date format). The test binary blank-imports gocldr/locales/all (see
+// format_cldr_test.go) to supply that data. Option-merging, type dispatch, and
+// error semantics are identical to fluent.js.
 
 func TestNumberBuiltinDefaults(t *testing.T) {
 	src := "num-bare = { NUMBER($arg) }\n" +
@@ -37,13 +36,13 @@ func TestNumberBuiltinDefaults(t *testing.T) {
 	})
 
 	t.Run("number argument", func(t *testing.T) {
-		// Default formatter: no grouping.
+		// CLDR default: en-US grouping.
 		got, errs := format(t, b, "num-bare", map[string]any{"arg": 1234})
-		assert.Equal(t, "1234", got)
+		assert.Equal(t, "1,234", got)
 		assert.Empty(t, errs)
 
 		got, errs = format(t, b, "num-fraction-valid", map[string]any{"arg": 1234})
-		assert.Equal(t, "1234.0", got)
+		assert.Equal(t, "1,234.0", got)
 		assert.Empty(t, errs)
 
 		// Bad option value -> RangeError, falls back to plain value.
@@ -112,11 +111,11 @@ func TestNumberBuiltinFluentNumberMerge(t *testing.T) {
 	arg := fluent.NewNumber(1234, fluent.NumberOptions{MinimumFractionDigits: intPtr(3)})
 	msg, _ := b.GetMessage("num-bare")
 	var errs []error
-	assert.Equal(t, "1234.000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "bare retains arg fraction digits")
+	assert.Equal(t, "1,234.000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "bare retains arg fraction digits")
 
 	// The call's minimumFractionDigits:1 overrides the arg's 3.
 	msg, _ = b.GetMessage("num-fraction-valid")
-	assert.Equal(t, "1234.0", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "call overrides arg fraction digits")
+	assert.Equal(t, "1,234.0", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "call overrides arg fraction digits")
 
 	assert.Empty(t, errs)
 }
@@ -128,7 +127,7 @@ func TestNumberBuiltinFromDateTime(t *testing.T) {
 	arg := fluent.NewDateTime(date, fluent.DateTimeOptions{Month: "short", Day: "numeric"})
 	msg, _ := b.GetMessage("num-bare")
 	var errs []error
-	assert.Equal(t, "1475107200000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs))
+	assert.Equal(t, "1,475,107,200,000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs))
 	assert.Empty(t, errs)
 }
 
@@ -145,10 +144,10 @@ func TestDateTimeBuiltin(t *testing.T) {
 	})
 
 	t.Run("date argument default rendering", func(t *testing.T) {
-		// ADAPTATION: default formatter renders ISO-8601 UTC.
+		// CLDR default: en-US short date.
 		arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
 		got, errs := format(t, b, "dt-bare", map[string]any{"arg": arg})
-		assert.Equal(t, "2016-09-29T00:00:00.000Z", got)
+		assert.Equal(t, "9/29/2016", got)
 		assert.Empty(t, errs)
 	})
 
@@ -162,7 +161,7 @@ func TestDateTimeBuiltin(t *testing.T) {
 	t.Run("number argument becomes datetime", func(t *testing.T) {
 		// 0 ms since epoch.
 		got, errs := format(t, b, "dt-bare", map[string]any{"arg": 0})
-		assert.Equal(t, "1970-01-01T00:00:00.000Z", got)
+		assert.Equal(t, "1/1/1970", got)
 		assert.Empty(t, errs)
 	})
 }

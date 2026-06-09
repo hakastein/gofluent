@@ -126,5 +126,5 @@ func (d *DateTime) Format(scope *Scope) string {
 	if scope != nil {
 		return scope.bundle.dateTimeFormatter.FormatDateTime(scope.bundle.locale, d.value, d.opts)
 	}
-	return defaultDateTimeFormatter{}.FormatDateTime("", d.value, d.opts)
+	return cldrDateTimeFormatter{}.FormatDateTime("", d.value, d.opts)
 }
