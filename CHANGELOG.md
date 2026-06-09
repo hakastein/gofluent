@@ -11,7 +11,7 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [0.1.0] - 2026-06-09
 
-Initial public release. Requires Go 1.23 or newer.
+Initial public release. Requires Go 1.26 or newer.
 
 ### Added
 

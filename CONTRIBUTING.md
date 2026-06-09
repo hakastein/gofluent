@@ -8,7 +8,7 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## Requirements
 
-- Go **1.23** or newer.
+- Go **1.26** or newer.
 - Docker — only for regenerating CLDR data. You do **not** need it for normal
   development; the generated tables and fixtures are committed.
 

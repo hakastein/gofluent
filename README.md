@@ -25,7 +25,7 @@ separate `cldr/*` packages, generated from CLDR data and validated against Node'
 go get github.com/hakastein/gofluent
 ```
 
-Requires Go 1.23 or newer.
+Requires Go 1.26 or newer.
 
 ## Packages
 
