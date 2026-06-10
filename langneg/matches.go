@@ -21,10 +21,10 @@ type orderedLocale struct {
 	locale *Locale
 }
 
-// FilterMatches negotiates requestedLocales against availableLocales using the
+// filterMatches negotiates requestedLocales against availableLocales using the
 // given strategy, returning the supported locales (keys taken from
 // availableLocales) in priority order. Mirrors filterMatches in matches.ts.
-func FilterMatches(requestedLocales, availableLocales []string, strategy Strategy) []string {
+func filterMatches(requestedLocales, availableLocales []string, strategy Strategy) []string {
 	var supported []string
 	supportedSet := make(map[string]bool)
 
@@ -43,16 +43,6 @@ func FilterMatches(requestedLocales, availableLocales []string, strategy Strateg
 		}
 	}
 
-	// removeKey deletes a matched available locale so it cannot match twice.
-	removeKey := func(key string) {
-		for i, entry := range availableMap {
-			if entry.key == key {
-				availableMap = append(availableMap[:i], availableMap[i+1:]...)
-				return
-			}
-		}
-	}
-
 outer:
 	for _, reqLocStr := range requestedLocales {
 		reqLocStrLC := strings.ToLower(reqLocStr)
@@ -62,64 +52,49 @@ outer:
 			continue
 		}
 
-		// runPass applies pred to every remaining available locale. For
-		// filtering it keeps collecting matches; for matching/lookup the first
-		// match advances/terminates. It returns (advance, stop) where advance
-		// means "continue outer" and stop means "return immediately" (lookup).
-		runPass := func(pred func(available *Locale) bool) (advance bool, stop bool) {
-			// Iterate over a snapshot of keys so deletions are safe.
-			keys := make([]string, len(availableMap))
-			locales := make([]*Locale, len(availableMap))
-			for i, entry := range availableMap {
-				keys[i] = entry.key
-				locales[i] = entry.locale
-			}
-			for i, key := range keys {
-				if !supportedSet[key] && pred(locales[i]) {
-					addSupported(key)
-					removeKey(key)
-					switch strategy {
-					case Lookup:
-						return false, true
-					case Filtering:
-						continue
-					default: // Matching
-						return true, false
-					}
+		// runPass applies pred to every remaining available locale, consuming
+		// matches so they cannot match twice. For Filtering it keeps collecting
+		// matches; for Matching/Lookup the first match ends the pass. It returns
+		// (advance, stop) where advance means "continue with the next requested
+		// locale" and stop means "negotiation is complete" (Lookup).
+		runPass := func(pred func(entry orderedLocale) bool) (advance, stop bool) {
+			matched := false
+			kept := availableMap[:0]
+			for _, entry := range availableMap {
+				if (strategy == Filtering || !matched) && !supportedSet[entry.key] && pred(entry) {
+					addSupported(entry.key)
+					matched = true
+					continue
 				}
+				kept = append(kept, entry)
 			}
-			return false, false
+			availableMap = kept
+			if !matched {
+				return false, false
+			}
+			switch strategy {
+			case Lookup:
+				return false, true
+			case Filtering:
+				return false, false
+			default: // Matching
+				return true, false
+			}
 		}
 
 		// 1) Exact match. Example: `en-US` === `en-US`.
-		{
-			keys := make([]string, len(availableMap))
-			for i, entry := range availableMap {
-				keys[i] = entry.key
-			}
-			for _, key := range keys {
-				if supportedSet[key] {
-					continue
-				}
-				if reqLocStrLC == strings.ToLower(key) {
-					addSupported(key)
-					removeKey(key)
-					switch strategy {
-					case Lookup:
-						return supported
-					case Filtering:
-						continue
-					default:
-						continue outer
-					}
-				}
-			}
+		if advance, stop := runPass(func(e orderedLocale) bool {
+			return reqLocStrLC == strings.ToLower(e.key)
+		}); stop {
+			return supported
+		} else if advance {
+			continue outer
 		}
 
 		// 2) Match against the available range (available treated as wildcard).
 		// Example: ['en-US'] * ['en'] = ['en'].
-		if advance, stop := runPass(func(available *Locale) bool {
-			return available.Matches(requestedLocale, true, false)
+		if advance, stop := runPass(func(e orderedLocale) bool {
+			return e.locale.matches(requestedLocale, true, false)
 		}); stop {
 			return supported
 		} else if advance {
@@ -128,9 +103,9 @@ outer:
 
 		// 3) Maximal (likely-subtags) version of the request.
 		// Example: ['en'] * ['en-GB','en-US'] = ['en-US'].
-		if requestedLocale.AddLikelySubtags() {
-			if advance, stop := runPass(func(available *Locale) bool {
-				return available.Matches(requestedLocale, true, false)
+		if requestedLocale.addLikelySubtags() {
+			if advance, stop := runPass(func(e orderedLocale) bool {
+				return e.locale.matches(requestedLocale, true, false)
 			}); stop {
 				return supported
 			} else if advance {
@@ -140,9 +115,9 @@ outer:
 
 		// 4) Different variant for the same locale id.
 		// Example: ['en-US-mac'] * ['en-US-win'] = ['en-US-win'].
-		requestedLocale.ClearVariants()
-		if advance, stop := runPass(func(available *Locale) bool {
-			return available.Matches(requestedLocale, true, true)
+		requestedLocale.clearVariant()
+		if advance, stop := runPass(func(e orderedLocale) bool {
+			return e.locale.matches(requestedLocale, true, true)
 		}); stop {
 			return supported
 		} else if advance {
@@ -151,10 +126,10 @@ outer:
 
 		// 5) Likely subtag without region.
 		// Example: ['zh-Hant-HK'] * ['zh-TW','zh-CN'] = ['zh-TW'].
-		requestedLocale.ClearRegion()
-		if requestedLocale.AddLikelySubtags() {
-			if advance, stop := runPass(func(available *Locale) bool {
-				return available.Matches(requestedLocale, true, false)
+		requestedLocale.clearRegion()
+		if requestedLocale.addLikelySubtags() {
+			if advance, stop := runPass(func(e orderedLocale) bool {
+				return e.locale.matches(requestedLocale, true, false)
 			}); stop {
 				return supported
 			} else if advance {
@@ -164,9 +139,9 @@ outer:
 
 		// 6) Different region for the same locale id.
 		// Example: ['en-US'] * ['en-AU'] = ['en-AU'].
-		requestedLocale.ClearRegion()
-		if _, stop := runPass(func(available *Locale) bool {
-			return available.Matches(requestedLocale, true, true)
+		requestedLocale.clearRegion()
+		if _, stop := runPass(func(e orderedLocale) bool {
+			return e.locale.matches(requestedLocale, true, true)
 		}); stop {
 			return supported
 		}

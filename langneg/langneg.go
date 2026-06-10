@@ -45,31 +45,18 @@ func (s Strategy) String() string {
 	}
 }
 
-// ErrLookupNeedsDefault is returned by NegotiateLanguagesErr when the Lookup
-// strategy is used without a defaultLocale, mirroring the thrown Error in
-// fluent.js.
+// ErrLookupNeedsDefault is returned by NegotiateLanguages when the Lookup
+// strategy is used without a defaultLocale.
 var ErrLookupNeedsDefault = errors.New("langneg: defaultLocale cannot be empty for strategy lookup")
 
 // NegotiateLanguages negotiates requested against available locales, appending
 // defaultLocale as a last resort, and returns the supported locales in priority
-// order. Mirrors negotiateLanguages in fluent.js.
+// order. An empty result is nil. Mirrors negotiateLanguages in fluent.js.
 //
-// For the Lookup strategy a non-empty defaultLocale is required; if it is empty
-// this function panics (matching fluent.js, which throws). Use
-// NegotiateLanguagesErr for an error-returning variant.
-func NegotiateLanguages(requested, available []string, defaultLocale string, strategy Strategy) []string {
-	result, err := NegotiateLanguagesErr(requested, available, defaultLocale, strategy)
-	if err != nil {
-		panic(err)
-	}
-	return result
-}
-
-// NegotiateLanguagesErr is the error-returning variant of NegotiateLanguages.
-// It returns ErrLookupNeedsDefault when the Lookup strategy is used with an
-// empty defaultLocale instead of panicking.
-func NegotiateLanguagesErr(requested, available []string, defaultLocale string, strategy Strategy) ([]string, error) {
-	supported := FilterMatches(requested, available, strategy)
+// The Lookup strategy requires a non-empty defaultLocale; with an empty one
+// ErrLookupNeedsDefault is returned.
+func NegotiateLanguages(requested, available []string, defaultLocale string, strategy Strategy) ([]string, error) {
+	supported := filterMatches(requested, available, strategy)
 
 	if strategy == Lookup {
 		if defaultLocale == "" {

@@ -17,22 +17,9 @@ type negCase struct {
 	supported []string
 }
 
-// assertSupported compares a negotiation result against the expectation,
-// treating a nil result as equal to an empty []string{} so the ported
-// []string{} expectations match a nil supported result.
-func assertSupported(t *testing.T, want, got []string, msgAndArgs ...any) {
-	t.Helper()
-	if len(want) == 0 {
-		assert.Empty(t, got, msgAndArgs...)
-		return
-	}
-	assert.Equal(t, want, got, msgAndArgs...)
-}
-
 // The cases below are ported from @fluent/langneg 0.6.2's langneg_test.js (the
-// self-contained, pre-Intl.Locale algorithm this package mirrors). Empty
-// supported slices use []string{} so the result is distinguished from a nil
-// result where it matters.
+// self-contained, pre-Intl.Locale algorithm this package mirrors). An empty
+// negotiation result is nil by contract.
 
 func TestNegotiateFiltering(t *testing.T) {
 	cases := []negCase{
@@ -85,7 +72,7 @@ func TestNegotiateFiltering(t *testing.T) {
 		{"extra zh-HK", []string{"zh-HK"}, []string{"zh-CN", "zh-TW"}, "", []string{"zh-TW", "zh-CN"}},
 
 		// default locale
-		{"default none", []string{"fr"}, []string{"de", "it"}, "", []string{}},
+		{"default none", []string{"fr"}, []string{"de", "it"}, "", nil},
 		{"default added", []string{"fr"}, []string{"de", "it"}, "en-US", []string{"en-US"}},
 		{"default present", []string{"fr"}, []string{"de", "en-US"}, "en-US", []string{"en-US"}},
 		{"default appended", []string{"fr", "de-DE"}, []string{"de-DE", "fr-CA"}, "en-US", []string{"fr-CA", "de-DE", "en-US"}},
@@ -103,47 +90,45 @@ func TestNegotiateFiltering(t *testing.T) {
 		{"underscore complex", []string{"fr_Cyrl_FR_macos"}, []string{"fr_Cyrl_fr-macos"}, "", []string{"fr_Cyrl_fr-macos"}},
 
 		// invalid input
-		{"invalid req", []string{"2"}, []string{"ąóżł"}, "", []string{}},
+		{"invalid req", []string{"2"}, []string{"ąóżł"}, "", nil},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := langneg.NegotiateLanguages(c.requested, c.available, c.def, langneg.Filtering)
-			assertSupported(t, c.supported, got,
+			got, err := langneg.NegotiateLanguages(c.requested, c.available, c.def, langneg.Filtering)
+			require.NoError(t, err)
+			assert.Equalf(t, c.supported, got,
 				"NegotiateLanguages(%v, %v, %q)", c.requested, c.available, c.def)
 		})
 	}
 }
 
 func TestNegotiateMatching(t *testing.T) {
-	got := langneg.NegotiateLanguages(
+	got, err := langneg.NegotiateLanguages(
 		[]string{"fr", "en"},
 		[]string{"en-US", "fr-FR", "en", "fr"},
 		"", langneg.Matching)
-	assertSupported(t, []string{"fr", "en"}, got, "matching")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"fr", "en"}, got, "matching")
 }
 
 func TestNegotiateLookup(t *testing.T) {
-	got := langneg.NegotiateLanguages(
+	got, err := langneg.NegotiateLanguages(
 		[]string{"fr-FR", "en"},
 		[]string{"en-US", "fr-FR", "en", "fr"},
 		"en-US", langneg.Lookup)
-	assertSupported(t, []string{"fr-FR"}, got, "lookup")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"fr-FR"}, got, "lookup")
 }
 
 func TestLookupDefaultFallback(t *testing.T) {
-	got := langneg.NegotiateLanguages([]string{"de"}, []string{"fr", "it"}, "en-US", langneg.Lookup)
-	assertSupported(t, []string{"en-US"}, got, "lookup fallback")
+	got, err := langneg.NegotiateLanguages([]string{"de"}, []string{"fr", "it"}, "en-US", langneg.Lookup)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"en-US"}, got, "lookup fallback")
 }
 
-func TestLookupNeedsDefaultPanics(t *testing.T) {
-	assert.Panics(t, func() {
-		langneg.NegotiateLanguages([]string{"de"}, []string{"fr"}, "", langneg.Lookup)
-	}, "expected panic for lookup without default")
-}
-
-func TestNegotiateLanguagesErrLookup(t *testing.T) {
-	_, err := langneg.NegotiateLanguagesErr([]string{"de"}, []string{"fr"}, "", langneg.Lookup)
+func TestLookupNeedsDefault(t *testing.T) {
+	_, err := langneg.NegotiateLanguages([]string{"de"}, []string{"fr"}, "", langneg.Lookup)
 	require.ErrorIs(t, err, langneg.ErrLookupNeedsDefault)
 }
 
@@ -181,7 +166,6 @@ func TestLocaleParsing(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := langneg.NewLocale(c.in)
-		assert.Truef(t, got.IsEqual(&c.want), "NewLocale(%q) fields = %+v, want %+v", c.in, *got, c.want)
-		assert.Equalf(t, c.want.Wellformed, got.Wellformed, "NewLocale(%q).Wellformed", c.in)
+		assert.Equalf(t, c.want, *got, "NewLocale(%q)", c.in)
 	}
 }

@@ -104,30 +104,16 @@ btn = Save
 `)
 	loc := localization.New([]*fluent.Bundle{en})
 
-	value, attrs, found, errs := loc.FormatMessage("btn", nil)
-	require.True(t, found, "FormatMessage btn: not found")
-	assert.Equal(t, "Save", value, "value")
-	assert.Equal(t, "Save the document", attrs["title"], "attrs[title]")
+	msg, errs := loc.FormatMessage("btn", nil)
+	assert.Equal(t, "Save", msg.Value, "value")
+	assert.Equal(t, "Save the document", msg.Attributes["title"], "attrs[title]")
 	assert.Empty(t, errs, "unexpected errs")
 
-	_, _, found, errs = loc.FormatMessage("ghost", nil)
-	assert.False(t, found, "ghost should not be found")
-	assert.Len(t, errs, 1, "ghost errs")
-}
-
-func TestFormatValues(t *testing.T) {
-	en := mustBundle(t, "en", `
-a = Apple
-b = Banana
-`)
-	loc := localization.New([]*fluent.Bundle{en})
-	got, errs := loc.FormatValues([]localization.L10nID{
-		{ID: "a"},
-		{ID: "b"},
-		{ID: "missing"},
-	})
-	assert.Equal(t, []string{"Apple", "Banana", "missing"}, got, "FormatValues")
-	assert.Len(t, errs, 1, "errs want one (for missing)")
+	msg, errs = loc.FormatMessage("ghost", nil)
+	assert.Equal(t, "ghost", msg.Value, "missing id is returned as the value")
+	require.Len(t, errs, 1, "ghost errs")
+	var notFound *localization.NotFoundError
+	assert.ErrorAs(t, errs[0], &notFound, "ghost err type")
 }
 
 // TestIntegrationFSNegotiation exercises the full path: an in-memory fs.FS
@@ -139,13 +125,13 @@ func TestIntegrationFSNegotiation(t *testing.T) {
 		"en/main.ftl": {Data: []byte("hello = Hello\nshared = Shared\nonly-en = Only English\n")},
 	}
 
-	loc, errs := localization.NewFromLocales(
-		[]string{"de-AT", "en-US"}, // requested
-		[]string{"de", "en"},       // available
-		"en",                       // default
-		[]string{"main"},           // resource ids
-		localization.FSLoader(fsys, "{locale}/{resource}.ftl"),
-	)
+	loc, errs := localization.NewFromLocales(localization.Config{
+		Requested: []string{"de-AT", "en-US"},
+		Available: []string{"de", "en"},
+		Default:   "en",
+		Resources: []string{"main"},
+		Loader:    localization.FSLoader(fsys, "{locale}/{resource}.ftl"),
+	})
 	require.Empty(t, errs, "NewFromLocales errors")
 
 	// Negotiation should produce the chain [de, en].
@@ -175,13 +161,13 @@ func TestFSLoaderMissingResourceTolerant(t *testing.T) {
 		"en/main.ftl": {Data: []byte("hi = Hi\n")},
 		// de/main.ftl intentionally absent.
 	}
-	loc, errs := localization.NewFromLocales(
-		[]string{"de", "en"},
-		[]string{"de", "en"},
-		"en",
-		[]string{"main"},
-		localization.FSLoader(fsys, "{locale}/{resource}.ftl"),
-	)
+	loc, errs := localization.NewFromLocales(localization.Config{
+		Requested: []string{"de", "en"},
+		Available: []string{"de", "en"},
+		Default:   "en",
+		Resources: []string{"main"},
+		Loader:    localization.FSLoader(fsys, "{locale}/{resource}.ftl"),
+	})
 	// de bundle load fails -> recorded as an error, but chain still built.
 	assert.NotEmpty(t, errs, "expected a load error for the missing de resource")
 	got, _ := loc.FormatValue("hi", nil)

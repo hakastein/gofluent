@@ -63,20 +63,12 @@ func NewLocale(locale string) *Locale {
 	return l
 }
 
-// IsEqual reports whether two locales have identical fields.
-func (l *Locale) IsEqual(other *Locale) bool {
-	return l.Language == other.Language &&
-		l.Script == other.Script &&
-		l.Region == other.Region &&
-		l.Variant == other.Variant
-}
-
-// Matches reports whether the receiver matches other field-by-field. When
+// matches reports whether the receiver matches other field-by-field. When
 // thisRange is true an empty field on the receiver acts as a wildcard; when
 // otherRange is true an empty field on other acts as a wildcard. Mirrors
 // Locale.matches in locale.ts (where undefined fields are the empty string
 // here).
-func (l *Locale) Matches(other *Locale, thisRange, otherRange bool) bool {
+func (l *Locale) matches(other *Locale, thisRange, otherRange bool) bool {
 	return fieldMatches(l.Language, other.Language, thisRange, otherRange) &&
 		fieldMatches(l.Script, other.Script, thisRange, otherRange) &&
 		fieldMatches(l.Region, other.Region, thisRange, otherRange) &&
@@ -99,16 +91,14 @@ func (l *Locale) String() string {
 	return strings.Join(parts, "-")
 }
 
-// ClearVariants clears the variant field.
-func (l *Locale) ClearVariants() { l.Variant = "" }
+func (l *Locale) clearVariant() { l.Variant = "" }
 
-// ClearRegion clears the region field.
-func (l *Locale) ClearRegion() { l.Region = "" }
+func (l *Locale) clearRegion() { l.Region = "" }
 
-// AddLikelySubtags expands the locale using the curated likely-subtags table.
+// addLikelySubtags expands the locale using the curated likely-subtags table.
 // It returns true and mutates the receiver if an expansion was found, mirroring
 // Locale.addLikelySubtags.
-func (l *Locale) AddLikelySubtags() bool {
+func (l *Locale) addLikelySubtags() bool {
 	newLocale := getLikelySubtagsMin(strings.ToLower(l.String()))
 	if newLocale != nil {
 		l.Language = newLocale.Language
