@@ -21,9 +21,9 @@ are not obvious from the code. For build, test, and contribution mechanics, see
    therefore fluent.js) out of the box. To do so it depends directly on
    `github.com/hakastein/gocldr`; the `langneg` subpackage remains
    standalone (stdlib-only), and testify is a test-only dependency.
-3. **Fault tolerance.** Given an error sink, the resolver never panics; it
-   collects errors and renders fluent.js-style placeholders so a best-effort
-   string is always produced.
+3. **Fault tolerance.** The resolver never panics; it returns the collected
+   errors and renders fluent.js-style placeholders so a best-effort string is
+   always produced.
 4. **Pluggable formatting.** The core formats against small interfaces
    (`PluralRules`, `NumberFormatter`, `DateTimeFormatter`). The default
    implementations are CLDR-backed — they adapt the external `gocldr` module
@@ -55,11 +55,17 @@ There are two FTL parsers, and that is deliberate:
 
 ## The resolver
 
-Formatting a pattern (`Bundle.FormatPattern` / `FormatPatternAny`) walks the
-runtime AST and resolves placeables. It is **fault-tolerant**: rather than
-returning early or panicking, it appends an error to the caller-supplied sink,
-renders a fluent.js-style placeholder for the failed part (`{$var}`, `{-term}`,
-`{FUNC()}`), and continues. A best-effort string is always returned.
+Formatting a pattern (`Bundle.FormatPattern`) walks the runtime AST and
+resolves placeables. It is **fault-tolerant**: rather than returning early or
+panicking, it records an error, renders a fluent.js-style placeholder for the
+failed part (`{$var}`, `{-term}`, `{FUNC()}`), and continues. A best-effort
+string is always returned alongside the collected errors.
+
+The runtime AST is sealed: `Pattern` is an opaque interface whose
+implementations live in the root package, and the resolver dispatches over
+typed unions (`expression`, `literal`, `patternElement`) rather than `any`.
+Users only ever hold a `Pattern` (from `Message.Value` or an attribute) and
+hand it back to `FormatPattern`.
 
 Errors are classified by sentinel wrapping, mirroring the JS error classes
 fluent.js reports:
@@ -75,7 +81,7 @@ Callers classify a failure with `errors.Is(err, fluent.ErrReference)` and so on.
 Two safety properties matter:
 
 - **Panic policy.** A panic from a user-supplied function that carries an `error`
-  is recovered into the error sink. A genuine runtime fault (for example a
+  is recovered into the returned errors. A genuine runtime fault (for example a
   nil-map write, which panics with a `runtime.Error`) is *not* swallowed: it
   propagates, so a real bug in a custom function surfaces rather than hiding.
 - **Expansion bound.** `MaxPlaceables` caps how many placeables a single

@@ -60,25 +60,26 @@ updated = Обновлено { DATETIME($at, dateStyle: "long") }
 `
 
 func main() {
-	res, _ := fluent.NewResource(src)
-
 	// NewBundle wires the CLDR plural rules, number, and date formatters by
 	// default. useIsolating is disabled here so the output is plain text;
 	// the default (true) wraps placeables in Unicode bidi isolation marks.
 	b := fluent.NewBundle("ru", fluent.WithUseIsolating(false))
-	b.AddResource(res)
+	b.AddResource(fluent.NewResource(src))
 
-	apples, _ := b.GetMessage("apples")
+	apples, _ := b.Message("apples")
 	for _, n := range []int{1, 2, 5, 21} {
-		fmt.Println(b.FormatPatternAny(apples.Value, map[string]any{"n": n}, nil))
+		out, _ := b.FormatPattern(apples.Value, map[string]any{"n": n})
+		fmt.Println(out)
 	}
 
-	total, _ := b.GetMessage("total")
-	fmt.Println(b.FormatPatternAny(total.Value, map[string]any{"total": 1234567}, nil))
+	total, _ := b.Message("total")
+	out, _ := b.FormatPattern(total.Value, map[string]any{"total": 1234567})
+	fmt.Println(out)
 
-	updated, _ := b.GetMessage("updated")
+	updated, _ := b.Message("updated")
 	at := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
-	fmt.Println(b.FormatPatternAny(updated.Value, map[string]any{"at": at}, nil))
+	out, _ = b.FormatPattern(updated.Value, map[string]any{"at": at})
+	fmt.Println(out)
 }
 ```
 
@@ -124,12 +125,12 @@ CLDR-backed formatting is the default, so a bare `fluent.NewBundle("en")`
 already formats numbers, dates, and plurals locale-aware. The locale *data* that
 drives real number/date rendering is still opt-in — see "Locale data" below.
 
-The resolver is **fault-tolerant**: pass a `*[]error` sink to `FormatPattern` /
-`FormatPatternAny` (or `nil` to panic on the first error). In collect mode it
-never panics — missing references and other problems are appended to the slice
-and rendered as fluent.js-style placeholders (for example `{$name}`), and a
-best-effort string is always returned. A `Bundle` is also safe for concurrent
-use across all of its read and `Add*` methods.
+The resolver is **fault-tolerant**: `FormatPattern` never panics. It returns a
+best-effort string together with the errors it encountered — missing references
+and other problems render as fluent.js-style placeholders (for example
+`{$name}`) and come back classified by the `ErrReference` / `ErrRange` /
+`ErrType` sentinels (`errors.Is`). A `Bundle` is also safe for concurrent use
+across all of its read and `Add*` methods.
 
 ## Locale data
 
@@ -188,13 +189,13 @@ var localesFS embed.FS
 // e.g. "locales/ru/main.ftl".
 loader := localization.FSLoader(localesFS, "locales/{locale}/{resource}.ftl")
 
-l10n, _ := localization.NewFromLocales(
-	[]string{"ru-RU"},     // requested locales (e.g. from Accept-Language)
-	[]string{"ru", "en"},  // locales you ship
-	"en",                  // default / ultimate fallback
-	[]string{"main"},      // resource ids (file basenames)
-	loader,
-)
+l10n, _ := localization.NewFromLocales(localization.Config{
+	Requested: []string{"ru-RU"},    // e.g. from Accept-Language
+	Available: []string{"ru", "en"}, // locales you ship
+	Default:   "en",                 // ultimate fallback
+	Resources: []string{"main"},     // resource ids (file basenames)
+	Loader:    loader,
+})
 
 // Walks the negotiated chain (ru, then en) and returns the first match.
 val, _ := l10n.FormatValue("apples", map[string]any{"n": 5}) // "5 яблок"
