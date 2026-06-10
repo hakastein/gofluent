@@ -1,20 +1,11 @@
 package fluent
 
-// This file ports the compact RUNTIME ast from
-// fluent.js/fluent-bundle/src/ast.ts. These are the shapes produced by the
-// runtime parser (resource.go) and consumed by the resolver. They are NOT the
-// syntax AST.
+// The runtime AST: the compact shapes produced by the runtime parser
+// (resource.go) and consumed by the resolver — not the syntax AST.
 
 // Pattern is either a simple string or a complex pattern (slice of elements).
-//
-// In fluent.js a Pattern is `string | Array<PatternElement>`. Go has no union
-// type, so we model it as `any`, where the concrete value is either:
-//
-//	string          – a simple pattern, or
-//	ComplexPattern  – a complex pattern with placeables.
-//
-// A nil Pattern represents the absence of a value (e.g. a message with only
-// attributes).
+// The concrete value is either a string or a ComplexPattern. A nil Pattern
+// represents the absence of a value (e.g. a message with only attributes).
 type Pattern = any
 
 // ComplexPattern is an array of pattern elements.

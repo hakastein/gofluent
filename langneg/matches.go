@@ -2,10 +2,7 @@ package langneg
 
 import "strings"
 
-// This file ports fluent.js/fluent-langneg/src/matches.ts (the self-contained
-// pre-Intl.Locale algorithm shipped through @fluent/langneg 0.6.x).
-//
-// The algorithm is based on the BCP-4647 3.3.2 Extended Filtering algorithm with
+// The negotiation algorithm is based on BCP-4647 3.3.2 Extended Filtering with
 // three Fluent-specific modifications:
 //
 //  1. Available locales are treated as ranges, so a more specific request can
@@ -41,9 +38,8 @@ func FilterMatches(requestedLocales, availableLocales []string, strategy Strateg
 	// Parse the available locales, preserving order and dropping malformed ids.
 	availableMap := make([]orderedLocale, 0, len(availableLocales))
 	for _, locale := range availableLocales {
-		parsed := NewLocale(locale)
-		if parsed.Wellformed {
-			availableMap = append(availableMap, orderedLocale{key: locale, locale: NewLocale(locale)})
+		if parsed := NewLocale(locale); parsed.Wellformed {
+			availableMap = append(availableMap, orderedLocale{key: locale, locale: parsed})
 		}
 	}
 
@@ -57,10 +53,6 @@ func FilterMatches(requestedLocales, availableLocales []string, strategy Strateg
 		}
 	}
 
-	// matchPass walks the remaining available locales applying pred. The boolean
-	// it returns reports whether the outer requested-locale loop should advance
-	// to the next requested locale (lookup short-circuits entirely via the
-	// stop return).
 outer:
 	for _, reqLocStr := range requestedLocales {
 		reqLocStrLC := strings.ToLower(reqLocStr)
@@ -170,9 +162,7 @@ outer:
 			}
 		}
 
-		// 6) Different region for the same locale id. This is the final pass, so
-		// a non-terminal match simply falls through to the next requested locale
-		// — identical to "continue outer" — and the advance flag is unused here.
+		// 6) Different region for the same locale id.
 		// Example: ['en-US'] * ['en-AU'] = ['en-AU'].
 		requestedLocale.ClearRegion()
 		if _, stop := runPass(func(available *Locale) bool {

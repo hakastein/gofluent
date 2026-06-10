@@ -1,7 +1,5 @@
 package fluent
 
-// This file ports fluent.js/fluent-bundle/src/scope.ts.
-
 // Scope stores the data required for a single pattern resolution and for error
 // recovery. A new Scope is created per FormatPattern call on a complex pattern.
 type Scope struct {

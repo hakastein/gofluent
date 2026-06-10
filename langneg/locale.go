@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// This file ports fluent.js/fluent-langneg/src/locale.ts (the self-contained,
-// pre-Intl.Locale implementation as shipped through @fluent/langneg 0.6.x). It
-// provides a small BCP-47 locale parser plus the curated likely-subtags table
-// the package carries so negotiation does not depend on a full CLDR dataset or
-// on golang.org/x/text.
-
 // Locale parsing regexp pieces, mirroring locale.ts. A locale id is split into
 // up to four fields: language, script, region, variant. Any field may be the
 // range character "*".
@@ -126,11 +120,8 @@ func (l *Locale) AddLikelySubtags() bool {
 	return false
 }
 
-// likelySubtagsMin is a curated list of likely subtags corresponding to the
-// Unicode CLDR likelySubtags list, carried by Project Fluent's @fluent/langneg
-// (locale.ts). It is intended to be used in place of the full likelySubtags
-// list where the full list cannot be (e.g. due to size). This data is based on
-// CLDR 30.0.3 and ported verbatim from @fluent/langneg 0.6.2.
+// likelySubtagsMin is the curated subset of the Unicode CLDR likelySubtags
+// list, ported verbatim from @fluent/langneg (locale.ts).
 var likelySubtagsMin = map[string]string{
 	"ar":      "ar-arab-eg",
 	"az-arab": "az-arab-ir",

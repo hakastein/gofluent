@@ -7,12 +7,6 @@ import (
 	"strings"
 )
 
-// This file ports fluent.js/fluent-bundle/src/resolver.ts.
-//
-// The resolver formats a Pattern to a Value. It is fault-tolerant: on errors it
-// salvages as much of the translation as possible, collecting errors into the
-// scope and returning a None when it cannot recover.
-
 // MaxPlaceables is the maximum number of placeables which can be expanded in a
 // single FormatPattern call. The limit protects against the Billion Laughs and
 // Quadratic Blowup attacks.
@@ -69,7 +63,6 @@ func newTypeError(format string, a ...any) *typeError {
 
 // matchSelector matches a variant key against the given selector.
 func matchSelector(scope *Scope, selector, key Value) bool {
-	// Both are plain strings.
 	if ss, ok := selector.(FluentString); ok {
 		if ks, ok := key.(FluentString); ok {
 			return ss == ks
@@ -125,7 +118,7 @@ type arguments struct {
 
 // getArguments resolves arguments to a call expression.
 func getArguments(scope *Scope, args []any) arguments {
-	positional := []Value{}
+	var positional []Value
 	named := make(map[string]Value)
 
 	for _, arg := range args {
@@ -270,16 +263,13 @@ func resolveFunctionReference(scope *Scope, ref *FunctionReference) Value {
 	return result
 }
 
-// callFunction invokes a Function, converting a returned error or an
-// intentionally-thrown panic into the error path (mirroring the try/catch
-// around func() in fluent.js). A genuine Go runtime fault (nil-deref, index
-// out of range, nil-map write, ...) is a programming bug, not a translation
-// error, so it is re-panicked rather than turned into a {FUNC()} fallback.
+// callFunction invokes a Function, converting a returned error or a panic into
+// the error path. A runtime.Error is a programming bug, not a translation
+// error, so it is re-panicked instead.
 func callFunction(fn Function, positional []Value, named map[string]Value) (result Value, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if re, ok := r.(runtime.Error); ok {
-				// Real programming bug: let it surface.
 				panic(re)
 			}
 			if fe, ok := r.(error); ok {

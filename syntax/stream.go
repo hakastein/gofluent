@@ -2,9 +2,7 @@ package syntax
 
 import "unicode/utf16"
 
-// eof is the sentinel returned by the stream when the cursor is past the end of
-// the input. It mirrors the EOF === undefined check in the reference. We use a
-// value that can never be a real UTF-16 code unit.
+// eof is the sentinel returned past the end of input; not a valid UTF-16 unit.
 const eof rune = -1
 
 // eol is the canonical end-of-line character. CRLF is normalized to LF.
@@ -125,10 +123,6 @@ func (ps *parserStream) lastIndexOfEOL(from int) int {
 	}
 	return -1
 }
-
-// ---------------------------------------------------------------------------
-// FluentParserStream methods
-// ---------------------------------------------------------------------------
 
 func (ps *parserStream) peekBlankInline() string {
 	start := ps.index + ps.peekOffset

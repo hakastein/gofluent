@@ -38,7 +38,7 @@ func NewFluentParser(opts ...Option) *FluentParser {
 }
 
 // addSpan records a span on a node unless one is already present or spans are
-// disabled. It mirrors the withSpan decorator.
+// disabled.
 func (p *FluentParser) addSpan(node ast.SyntaxNode, start, end int) {
 	if !p.withSpans {
 		return
@@ -98,9 +98,7 @@ func (p *FluentParser) Parse(source string) *ast.Resource {
 }
 
 // ParseEntry parses the first Message or Term in source, skipping preceding
-// comments. Junk is returned (with no error) for an unparseable entry; only an
-// internal invariant violation would surface as an error, which never happens
-// here, so the error is always nil for malformed input.
+// comments. Unparseable input yields (ast.Junk, nil).
 func (p *FluentParser) ParseEntry(source string) (ast.Entry, error) {
 	ps := newParserStream(source)
 	ps.skipBlankBlock()
@@ -512,7 +510,7 @@ func (p *FluentParser) maybeGetPattern(ps *parserStream) (*ast.Pattern, error) {
 }
 
 // indent is a transient token used while building patterns; it is not part of
-// the AST and is trimmed/merged during dedent.
+// the AST.
 type indent struct {
 	value string
 	span  *ast.Span
@@ -521,7 +519,7 @@ type indent struct {
 func (p *FluentParser) getPattern(ps *parserStream, isBlock bool) (*ast.Pattern, error) {
 	start := ps.index
 	// elements holds *ast.TextElement, *ast.Placeable, or *indent.
-	var elements []interface{}
+	var elements []any
 	const inf = int(^uint(0) >> 1)
 	commonIndentLength := inf
 
@@ -582,7 +580,7 @@ func (p *FluentParser) getIndent(ps *parserStream, value string, start int) *ind
 
 // dedent strips the common indent from text lines and merges adjacent text
 // elements, mirroring FluentParser.dedent.
-func (p *FluentParser) dedent(elements []interface{}, commonIndent int) []ast.PatternElement {
+func (p *FluentParser) dedent(elements []any, commonIndent int) []ast.PatternElement {
 	var trimmed []ast.PatternElement
 
 	for _, element := range elements {
@@ -667,8 +665,6 @@ func (p *FluentParser) getTextElement(ps *parserStream) (*ast.TextElement, error
 		ps.next()
 	}
 
-	// Reconstruct the slice from UTF-16 units so astral-plane characters
-	// (surrogate pairs) are preserved intact.
 	te := &ast.TextElement{Value: ps.slice(start, ps.index)}
 	p.addSpan(te, start, ps.index)
 	return te, nil

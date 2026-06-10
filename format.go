@@ -2,17 +2,6 @@ package fluent
 
 import "time"
 
-// This file defines the pluggable formatting layer. Where fluent.js leans on the
-// JS Intl.* objects (Intl.NumberFormat, Intl.DateTimeFormat, Intl.PluralRules),
-// the Go port exposes interfaces for the same three concerns. NewBundle installs
-// CLDR-backed defaults (see format_cldr.go, built on
-// github.com/hakastein/gocldr, whose output matches Intl.*); callers may
-// override them per bundle with WithNumberFormatter/WithDateTimeFormatter/
-// WithPluralRules.
-//
-// The locale is represented as a plain BCP-47 string and passed to every
-// formatter.
-
 // NumberOptions carries the options that the NUMBER() builtin and FluentNumber
 // accept. It mirrors the subset of Intl.NumberFormatOptions used by fluent.js.
 // Pointer fields distinguish "unset" from a zero value, mirroring how fluent.js

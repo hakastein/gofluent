@@ -19,9 +19,7 @@ import (
 // treats it as a non-fatal, skipped resource.
 func FSLoader(fsys fs.FS, pathPattern string) ResourceLoader {
 	return func(locale, resourceID string) (string, error) {
-		path := pathPattern
-		path = strings.ReplaceAll(path, "{locale}", locale)
-		path = strings.ReplaceAll(path, "{resource}", resourceID)
+		path := strings.NewReplacer("{locale}", locale, "{resource}", resourceID).Replace(pathPattern)
 		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return "", err

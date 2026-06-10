@@ -1,12 +1,9 @@
 package fluent
 
 import (
-	"strings"
 	"sync"
 	"time"
 )
-
-// This file ports fluent.js/fluent-bundle/src/bundle.ts (FluentBundle).
 
 // Function is the signature of a Fluent builtin/runtime function. It receives
 // positional and named Value arguments and returns a Value. Returning a non-nil
@@ -26,19 +23,14 @@ type TextTransform func(string) string
 // and functions maps are guarded by mu; the locale and the injected formatters
 // are set once at construction and never mutated afterwards.
 type Bundle struct {
-	// locale is the BCP-47 tag used by the pluggable formatters. fluent.js
-	// supports a locale fallback list; the core here keeps a single primary
-	// locale string (plus the full list for reference) since formatting is
-	// delegated to injected formatters.
+	// locale is the primary BCP-47 tag passed to the pluggable formatters;
+	// locales keeps the full fallback list set by WithLocales.
 	locale  string
 	locales []string
 
-	// mu guards the terms, messages, and functions maps, which are mutated by
-	// AddFunction/addResource and read by the resolver during FormatPattern as
-	// well as by HasMessage/GetMessage. It is held only for the duration of a
-	// single map lookup or insert — never across a whole FormatPattern or a
-	// user-function call, so a function that itself calls AddFunction does not
-	// deadlock.
+	// mu guards terms, messages, and functions. It is held per map operation,
+	// never across a whole FormatPattern or a user-function call, so a function
+	// that itself calls AddFunction does not deadlock.
 	mu        sync.RWMutex
 	terms     map[string]*Term
 	messages  map[string]*Message
@@ -205,7 +197,7 @@ func (b *Bundle) AddResourceOverriding(res *Resource) []error {
 }
 
 func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
-	var errors []error
+	var errs []error
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -215,7 +207,7 @@ func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 		case *Term:
 			if !allowOverrides {
 				if _, exists := b.terms[e.ID]; exists {
-					errors = append(errors, newOverrideError("term", e.ID))
+					errs = append(errs, newOverrideError("term", e.ID))
 					continue
 				}
 			}
@@ -223,7 +215,7 @@ func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 		case *Message:
 			if !allowOverrides {
 				if _, exists := b.messages[e.ID]; exists {
-					errors = append(errors, newOverrideError("message", e.ID))
+					errs = append(errs, newOverrideError("message", e.ID))
 					continue
 				}
 			}
@@ -231,7 +223,7 @@ func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 		}
 	}
 
-	return errors
+	return errs
 }
 
 func newOverrideError(kind, id string) error {
@@ -315,15 +307,9 @@ func (b *Bundle) FormatPatternAny(pattern Pattern, args map[string]any, errs *[]
 	return b.FormatPattern(pattern, typed, errs)
 }
 
-// coerceArg converts a raw Go argument value into a Fluent Value, mirroring the
-// JS-value -> FluentValue coercion in resolveVariableReference. Unsupported
-// types map to nil (which the resolver reports as a TypeError and renders as a
-// missing-variable fallback).
-//
-// All integer kinds are widened to float64, since Fluent has a single numeric
-// type (as in JS). Consequently int64/uint64 values with a magnitude above 2^53
-// lose precision in the conversion and may render rounded; supply a string or a
-// custom Value for exact large-integer output.
+// coerceArg converts a raw Go argument value into a Fluent Value. Unsupported
+// types map to nil, which the resolver reports as a type error and renders as
+// a missing-variable fallback.
 func coerceArg(v any) Value {
 	switch x := v.(type) {
 	case nil:
@@ -362,14 +348,4 @@ func coerceArg(v any) Value {
 		// Unsupported type (slices, maps, bools, funcs, ...).
 		return nil
 	}
-}
-
-// millisToTime converts a millisecond Unix timestamp to a time.Time (UTC).
-func millisToTime(ms float64) time.Time {
-	return time.UnixMilli(int64(ms)).UTC()
-}
-
-// localesKey joins the locale list for cache/identity purposes (memoizer port).
-func localesKey(locales []string) string {
-	return strings.Join(locales, " ")
 }

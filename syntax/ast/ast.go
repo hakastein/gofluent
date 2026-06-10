@@ -127,7 +127,7 @@ func (m *Message) jsonFields(ctx *marshalCtx) []jsonField {
 	return []jsonField{
 		{"id", m.ID},
 		{"value", m.Value},
-		{"attributes", nonNilAttrs(m.Attributes)},
+		{"attributes", nonNil(m.Attributes)},
 		{"comment", m.Comment},
 	}
 }
@@ -153,7 +153,7 @@ func (t *Term) jsonFields(ctx *marshalCtx) []jsonField {
 	return []jsonField{
 		{"id", t.ID},
 		{"value", t.Value},
-		{"attributes", nonNilAttrs(t.Attributes)},
+		{"attributes", nonNil(t.Attributes)},
 		{"comment", t.Comment},
 	}
 }
@@ -172,7 +172,7 @@ type Pattern struct {
 func (*Pattern) nodeTypeName() string { return "Pattern" }
 
 func (p *Pattern) jsonFields(ctx *marshalCtx) []jsonField {
-	return []jsonField{{"elements", nonNilElems(p.Elements)}}
+	return []jsonField{{"elements", nonNil(p.Elements)}}
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +355,7 @@ func (*SelectExpression) isExpression()        {}
 func (s *SelectExpression) jsonFields(ctx *marshalCtx) []jsonField {
 	return []jsonField{
 		{"selector", s.Selector},
-		{"variants", nonNilVariants(s.Variants)},
+		{"variants", nonNil(s.Variants)},
 	}
 }
 
@@ -374,8 +374,8 @@ func (*CallArguments) nodeTypeName() string { return "CallArguments" }
 
 func (c *CallArguments) jsonFields(ctx *marshalCtx) []jsonField {
 	return []jsonField{
-		{"positional", nonNilInline(c.Positional)},
-		{"named", nonNilNamed(c.Named)},
+		{"positional", nonNil(c.Positional)},
+		{"named", nonNil(c.Named)},
 	}
 }
 
@@ -526,7 +526,7 @@ func (j *Junk) AddAnnotation(a *Annotation) {
 
 func (j *Junk) jsonFields(ctx *marshalCtx) []jsonField {
 	return []jsonField{
-		{"annotations", nonNilAnnots(j.Annotations)},
+		{"annotations", nonNil(j.Annotations)},
 		{"content", j.Content},
 	}
 }
@@ -561,7 +561,7 @@ func (s *Span) jsonFields(ctx *marshalCtx) []jsonField {
 type Annotation struct {
 	Spanned
 	Code      string
-	Arguments []interface{}
+	Arguments []any
 	Message   string
 }
 
@@ -570,7 +570,7 @@ func (*Annotation) nodeTypeName() string { return "Annotation" }
 func (a *Annotation) jsonFields(ctx *marshalCtx) []jsonField {
 	return []jsonField{
 		{"code", a.Code},
-		{"arguments", nonNilArgs(a.Arguments)},
+		{"arguments", nonNil(a.Arguments)},
 		{"message", a.Message},
 	}
 }
@@ -595,67 +595,19 @@ func nodeSpan(n jsonMarshaler) *Span {
 	return nil
 }
 
-// isNilNode reports whether an interface holds a typed-nil pointer.
-func isNilNode(v interface{}) bool {
+// isNilNode reports whether an interface holds a typed-nil node pointer.
+func isNilNode(v any) bool {
 	if v == nil {
 		return true
 	}
 	rv := reflect.ValueOf(v)
-	switch rv.Kind() {
-	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map:
-		return rv.IsNil()
-	default:
-		return false
-	}
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
-// The nonNil* helpers ensure empty slices marshal as [] rather than null.
-
-func nonNilAttrs(s []*Attribute) []*Attribute {
+// nonNil ensures empty slices marshal as [] rather than null.
+func nonNil[T any](s []T) []T {
 	if s == nil {
-		return []*Attribute{}
-	}
-	return s
-}
-
-func nonNilElems(s []PatternElement) []PatternElement {
-	if s == nil {
-		return []PatternElement{}
-	}
-	return s
-}
-
-func nonNilVariants(s []*Variant) []*Variant {
-	if s == nil {
-		return []*Variant{}
-	}
-	return s
-}
-
-func nonNilInline(s []InlineExpression) []InlineExpression {
-	if s == nil {
-		return []InlineExpression{}
-	}
-	return s
-}
-
-func nonNilNamed(s []*NamedArgument) []*NamedArgument {
-	if s == nil {
-		return []*NamedArgument{}
-	}
-	return s
-}
-
-func nonNilAnnots(s []*Annotation) []*Annotation {
-	if s == nil {
-		return []*Annotation{}
-	}
-	return s
-}
-
-func nonNilArgs(s []interface{}) []interface{} {
-	if s == nil {
-		return []interface{}{}
+		return []T{}
 	}
 	return s
 }

@@ -7,16 +7,15 @@ import "fmt"
 // returned to the caller; instead they become Annotations on Junk entries.
 type ParseError struct {
 	Code    string
-	Args    []interface{}
+	Args    []any
 	Message string
 }
 
-// Error implements the error interface.
 func (e *ParseError) Error() string { return e.Message }
 
 // newParseError builds a ParseError, computing its message from the code and
 // arguments via getErrorMessage.
-func newParseError(code string, args ...interface{}) *ParseError {
+func newParseError(code string, args ...any) *ParseError {
 	return &ParseError{
 		Code:    code,
 		Args:    args,
@@ -26,7 +25,7 @@ func newParseError(code string, args ...interface{}) *ParseError {
 
 // getErrorMessage returns the human-readable message for a Fluent error code,
 // formatting any arguments. It mirrors getErrorMessage in errors.ts.
-func getErrorMessage(code string, args []interface{}) string {
+func getErrorMessage(code string, args []any) string {
 	switch code {
 	case "E0001":
 		return "Generic error"
@@ -90,7 +89,7 @@ func getErrorMessage(code string, args []interface{}) string {
 }
 
 // arg returns the i-th argument or nil if out of range.
-func arg(args []interface{}, i int) interface{} {
+func arg(args []any, i int) any {
 	if i < len(args) {
 		return args[i]
 	}

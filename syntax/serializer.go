@@ -6,8 +6,6 @@ import (
 	"github.com/hakastein/gofluent/syntax/ast"
 )
 
-// hasEntries is the serializer state bit indicating at least one entry has been
-// emitted.
 const hasEntries = 1
 
 // FluentSerializer renders an AST back to canonical Fluent source. It is a port
@@ -48,7 +46,7 @@ func (s *FluentSerializer) Serialize(resource *ast.Resource) string {
 	return parts.String()
 }
 
-// SerializeEntry renders a single entry with the given state bits.
+// serializeEntry renders a single entry with the given state bits.
 func (s *FluentSerializer) serializeEntry(entry ast.Entry, state int) string {
 	switch e := entry.(type) {
 	case *ast.Message:

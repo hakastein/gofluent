@@ -11,6 +11,7 @@ package langneg
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,25 +78,14 @@ func NegotiateLanguagesErr(requested, available []string, defaultLocale string, 
 		if len(supported) == 0 {
 			supported = append(supported, defaultLocale)
 		}
-	} else if defaultLocale != "" && !contains(supported, defaultLocale) {
+	} else if defaultLocale != "" && !slices.Contains(supported, defaultLocale) {
 		supported = append(supported, defaultLocale)
 	}
 
 	return supported, nil
 }
 
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
-// acceptedEntryRe matches one Accept-Language entry plus its optional q value:
-//
-//	(?:^|,)([^,;]+)(?:;\s*[qQ]\s*=([^,;]+))?
+// acceptedEntryRe matches one Accept-Language entry plus its optional q value.
 var acceptedEntryRe = regexp.MustCompile(`(?:^|,)([^,;]+)(?:;\s*[qQ]\s*=([^,;]+))?`)
 
 // AcceptedLanguages parses an HTTP Accept-Language header value into an ordered
@@ -104,17 +94,16 @@ var acceptedEntryRe = regexp.MustCompile(`(?:^|,)([^,;]+)(?:;\s*[qQ]\s*=([^,;]+)
 // q-aware implementation). An empty header yields nil.
 func AcceptedLanguages(header string) []string {
 	var entries []langQ
-	for _, m := range acceptedEntryRe.FindAllStringSubmatchIndex(header, -1) {
+	for i, m := range acceptedEntryRe.FindAllStringSubmatchIndex(header, -1) {
 		// m[2]:m[3] is the lang group, m[4]:m[5] is the q value group.
 		lang := strings.TrimSpace(header[m[2]:m[3]])
 		q := 1.0
 		if m[4] >= 0 {
 			q = parseQ(header[m[4]:m[5]])
 		}
-		entries = append(entries, langQ{lang: lang, q: q, index: m[0]})
+		entries = append(entries, langQ{lang: lang, q: q, index: i})
 	}
 
-	// Stable sort by q descending; equal weights keep header (index) order.
 	stableSortByQ(entries)
 
 	if len(entries) == 0 {
@@ -127,9 +116,7 @@ func AcceptedLanguages(header string) []string {
 	return out
 }
 
-// leadingFloatRe captures the leading numeric prefix of a string, mirroring
-// JavaScript's parseFloat which parses as much of a number as it can from the
-// start and ignores trailing garbage.
+// leadingFloatRe captures the leading numeric prefix of a string.
 var leadingFloatRe = regexp.MustCompile(`^\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?`)
 
 // parseQ mirrors `parseFloat(token) || 0`: it parses the leading numeric prefix
@@ -146,16 +133,16 @@ func parseQ(token string) float64 {
 	return v
 }
 
-// langQ is one parsed Accept-Language entry: its locale id, q weight, and the
-// byte offset at which it appeared (used as a stable tiebreaker).
+// langQ is one parsed Accept-Language entry: its locale id, q weight, and its
+// ordinal position in the header (used as a stable tiebreaker).
 type langQ struct {
 	lang  string
 	q     float64
 	index int
 }
 
-// stableSortByQ sorts entries by descending q, keeping header order (index) for
-// equal weights. Mirrors the comparator (a.q === b.q ? a.index - b.index : b.q - a.q).
+// stableSortByQ sorts entries by descending q, keeping header order for equal
+// weights.
 func stableSortByQ(entries []langQ) {
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].q == entries[j].q {

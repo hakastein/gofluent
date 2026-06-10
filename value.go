@@ -5,13 +5,6 @@ import (
 	"time"
 )
 
-// This file ports fluent.js/fluent-bundle/src/types.ts.
-//
-// In fluent.js a FluentValue is `FluentType | string`: primitive JS strings are
-// considered values for performance. In Go we model every resolved value as the
-// Value interface; the FluentString type wraps a plain string. Custom argument
-// types implement Value directly (mirroring user subclasses of FluentType).
-
 // Value is the base of Fluent's runtime type system. Every expression resolves
 // to a Value. Callers convert a Value to its native string with Format.
 type Value interface {

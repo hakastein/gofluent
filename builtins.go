@@ -4,11 +4,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
-
-// This file ports fluent.js/fluent-bundle/src/builtins.ts: the NUMBER and
-// DATETIME builtins. Each builtin takes positional and named Value arguments
-// and returns a Value carrying merged formatting options.
 
 // optString unwraps a named option Value to its string form. A FluentString is
 // returned verbatim; a Number renders its plain value. Anything else yields
@@ -62,12 +59,11 @@ func optBool(v Value) (bool, bool) {
 }
 
 // numberOptionsFrom merges the allowed named options into a NumberOptions,
-// starting from a base set of options. It returns a deferred RangeError when an
-// integer-valued option carries a non-numeric value (e.g.
-// minimumFractionDigits: "oops"). The NUMBER builtin still succeeds (mirroring
-// fluent.js, where the bad value only causes Intl.NumberFormat to throw at
-// format time); the returned error is stored on the Number and surfaced when it
-// is formatted.
+// starting from a base set of options. Unknown options are ignored, mirroring
+// fluent.js. An integer-valued option carrying a non-numeric value (e.g.
+// minimumFractionDigits: "oops") returns a deferred range error: the NUMBER
+// builtin still succeeds and the error surfaces at format time, mirroring
+// Intl.NumberFormat throwing in its constructor-deferred way.
 func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions, error) {
 	out := base
 	for name, v := range opts {
@@ -127,8 +123,6 @@ func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions
 			}
 			out.MaximumSignificantDigits = intPtr(n)
 		}
-		// Other options (e.g. currency, unknown) are recognized for currency
-		// above; truly unknown options are ignored, mirroring fluent.js.
 	}
 	return out, nil
 }
@@ -209,6 +203,11 @@ func builtinNUMBER(args []Value, opts map[string]Value) (Value, error) {
 	}
 
 	return nil, newTypeError("Invalid argument to NUMBER")
+}
+
+// millisToTime converts a millisecond Unix timestamp to a time.Time (UTC).
+func millisToTime(ms float64) time.Time {
+	return time.UnixMilli(int64(ms)).UTC()
 }
 
 // builtinDATETIME implements the DATETIME() builtin.

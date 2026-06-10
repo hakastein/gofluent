@@ -6,15 +6,9 @@ import (
 	"strings"
 )
 
-// This file ports fluent.js/fluent-bundle/src/resource.ts: the optimized
-// runtime FTL parser producing the runtime AST (runtime_ast.go).
-//
-// The fluent.js parser uses sticky (/y) regexes anchored to a moving cursor.
-// Go's regexp has no sticky flag, so each pattern is anchored with a leading
-// `^` and matched against source[cursor:]; a match is only accepted when it
-// begins at offset 0 of the slice. Capture-group indices are translated back to
-// absolute offsets by adding the cursor.
-
+// The fluent.js runtime parser uses sticky (/y) regexes anchored at a moving
+// cursor. Go's regexp has no sticky flag, so each pattern is anchored with a
+// leading `^` and matched against source[cursor:].
 var (
 	reAttributeStart = regexp.MustCompile(`^\.([a-zA-Z][\w-]*) *= *`)
 	reVariantStart   = regexp.MustCompile(`^\*?\[`)

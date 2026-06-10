@@ -8,7 +8,7 @@ import (
 // jsonField is a single key/value pair in an ordered JSON object.
 type jsonField struct {
 	key   string
-	value interface{}
+	value any
 }
 
 // marshalCtx carries options through a marshaling pass.
@@ -26,7 +26,7 @@ type jsonMarshaler interface {
 
 // encodeNode encodes any AST node (or nil) into JSON bytes using the supplied
 // context. nil values are encoded as JSON null.
-func encodeNode(v interface{}, ctx *marshalCtx) ([]byte, error) {
+func encodeNode(v any, ctx *marshalCtx) ([]byte, error) {
 	switch n := v.(type) {
 	case nil:
 		return []byte("null"), nil
@@ -86,7 +86,7 @@ func encodeObject(n jsonMarshaler, ctx *marshalCtx) ([]byte, error) {
 
 // encodeValue encodes an arbitrary field value: nodes, slices of nodes, nil
 // pointers, and scalars.
-func encodeValue(v interface{}, ctx *marshalCtx) ([]byte, error) {
+func encodeValue(v any, ctx *marshalCtx) ([]byte, error) {
 	switch val := v.(type) {
 	case nil:
 		return []byte("null"), nil
@@ -96,25 +96,6 @@ func encodeValue(v interface{}, ctx *marshalCtx) ([]byte, error) {
 			return []byte("null"), nil
 		}
 		return encodeObject(val, ctx)
-	case []jsonField:
-		// Inline ordered object (used for Annotation arguments wrapper, unused now).
-		var buf bytes.Buffer
-		buf.WriteByte('{')
-		for i, f := range val {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			kb, _ := json.Marshal(f.key)
-			buf.Write(kb)
-			buf.WriteByte(':')
-			vb, err := encodeValue(f.value, ctx)
-			if err != nil {
-				return nil, err
-			}
-			buf.Write(vb)
-		}
-		buf.WriteByte('}')
-		return buf.Bytes(), nil
 	default:
 		return encodeSlice(v, ctx)
 	}
@@ -122,7 +103,7 @@ func encodeValue(v interface{}, ctx *marshalCtx) ([]byte, error) {
 
 // encodeSlice handles slices of node interfaces/pointers, encoding each element
 // as a node. Non-node slices and scalars fall through to json.Marshal.
-func encodeSlice(v interface{}, ctx *marshalCtx) ([]byte, error) {
+func encodeSlice(v any, ctx *marshalCtx) ([]byte, error) {
 	switch s := v.(type) {
 	case []Entry:
 		return encodeNodeSlice(s, ctx)
@@ -150,7 +131,7 @@ func encodeNodeSlice[T any](items []T, ctx *marshalCtx) ([]byte, error) {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		b, err := encodeValue(interface{}(it), ctx)
+		b, err := encodeValue(any(it), ctx)
 		if err != nil {
 			return nil, err
 		}
