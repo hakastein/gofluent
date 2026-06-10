@@ -85,9 +85,10 @@ func TestPrimitiveSimpleStrings(t *testing.T) {
 	}
 
 	// Attribute value directly.
-	msg, _ := b.GetMessage("bar")
-	var aerr []error
-	assert.Equal(t, "Bar Attribute", b.FormatPattern(msg.Attributes["attr"], nil, &aerr))
+	msg, _ := b.Message("bar")
+	got, errs := b.FormatPattern(msg.Attributes["attr"], nil)
+	assert.Equal(t, "Bar Attribute", got)
+	assert.Empty(t, errs)
 }
 
 func TestPrimitiveComplexStrings(t *testing.T) {
@@ -107,23 +108,28 @@ func TestPrimitiveComplexStrings(t *testing.T) {
 		"}\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "bar", nil)
-	assert.Equal(t, "FooBar", got)
-	assert.Empty(t, errs)
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"bar", "FooBar"},
+		{"placeable-message", "FooBarBaz"},
+		{"placeable-attr", "FooBarBazAttribute"},
+		{"selector-attr", "FooBarBaz"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			got, errs := format(t, b, tc.id, nil)
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, errs)
+		})
+	}
 
-	got, errs = format(t, b, "placeable-message", nil)
-	assert.Equal(t, "FooBarBaz", got)
-	assert.Empty(t, errs)
-
-	msg, _ := b.GetMessage("baz")
-	var aerr []error
-	assert.Equal(t, "FooBarBazAttribute", b.FormatPattern(msg.Attributes["attr"], nil, &aerr))
-
-	got, errs = format(t, b, "placeable-attr", nil)
-	assert.Equal(t, "FooBarBazAttribute", got)
-	assert.Empty(t, errs)
-
-	got, errs = format(t, b, "selector-attr", nil)
-	assert.Equal(t, "FooBarBaz", got)
-	assert.Empty(t, errs)
+	// Attribute value directly.
+	t.Run("attribute directly", func(t *testing.T) {
+		msg, _ := b.Message("baz")
+		got, errs := b.FormatPattern(msg.Attributes["attr"], nil)
+		assert.Equal(t, "FooBarBazAttribute", got)
+		assert.Empty(t, errs)
+	})
 }

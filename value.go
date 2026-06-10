@@ -6,10 +6,13 @@ import (
 )
 
 // Value is the base of Fluent's runtime type system. Every expression resolves
-// to a Value. Callers convert a Value to its native string with Format.
+// to a Value; Format renders it to its final string. Custom argument types
+// implement Value directly (mirroring user subclasses of FluentType in
+// fluent.js).
 type Value interface {
-	// Format renders this value to a string, optionally using the scope's
-	// pluggable formatters. Mirrors FluentType.toString(scope) in fluent.js.
+	// Format renders this value to a string. The scope carries the bundle's
+	// locale and formatters; it may be nil when formatting outside a
+	// resolution (implementations must tolerate that).
 	Format(scope *Scope) string
 }
 
@@ -19,105 +22,92 @@ type numberValue interface {
 	numberValue() (float64, NumberOptions)
 }
 
-// FluentString is the FluentValue for a plain string (the JS string primitive).
-type FluentString string
+// String is the Value for a plain string.
+type String string
 
 // Format returns the string unchanged.
-func (s FluentString) Format(_ *Scope) string { return string(s) }
+func (s String) Format(_ *Scope) string { return string(s) }
 
-// None is a FluentType representing no correct value (FluentNone in fluent.js).
-// It renders missing references using the fluent.js fallback convention:
-// a missing variable as `{$name}`, a missing message as `{message}`, a missing
-// term as `{-term}`, a failed function as `{FUNC()}`. The default fallback is
-// `???` which renders as `{???}`.
+// None is the Value representing a missing or invalid value (FluentNone in
+// fluent.js). It renders using the fluent.js fallback convention: a missing
+// variable as `{$name}`, a missing message as `{message}`, a missing term as
+// `{-term}`, a failed function as `{FUNC()}`. The default fallback is `???`,
+// rendering as `{???}`.
 type None struct {
-	value string
+	fallback string
 }
 
-// NewNone constructs a None with the given fallback inner value.
-func NewNone(value string) *None {
-	if value == "" {
-		value = "???"
+// NewNone constructs a None with the given fallback. An empty fallback
+// defaults to "???".
+func NewNone(fallback string) *None {
+	if fallback == "" {
+		fallback = "???"
 	}
-	return &None{value: value}
+	return &None{fallback: fallback}
 }
 
-// Value returns the raw fallback string (without braces).
-func (n *None) Value() string { return n.value }
+// Fallback returns the raw fallback string (without braces).
+func (n *None) Fallback() string { return n.fallback }
 
-// Format renders the None as `{value}`.
-func (n *None) Format(_ *Scope) string { return "{" + n.value + "}" }
+// Format renders the None as `{fallback}`.
+func (n *None) Format(_ *Scope) string { return "{" + n.fallback + "}" }
 
-// Number is a FluentType representing a number (FluentNumber in fluent.js).
-// It stores the numeric value plus an option bag passed to the NumberFormatter.
+// Number is the Value for a number (FluentNumber in fluent.js): a float64
+// plus the option bag passed to the NumberFormatter.
 type Number struct {
-	value float64
-	opts  NumberOptions
+	Value   float64
+	Options NumberOptions
+
 	// optErr is a deferred option-validation error (e.g. a non-numeric
-	// minimumFractionDigits). In fluent.js such errors surface at format time
-	// from Intl.NumberFormat; here we mirror that: the error is reported via the
-	// scope at Format time and the value falls back to its plain rendering.
+	// minimumFractionDigits). Mirroring Intl.NumberFormat, which throws at
+	// format time, it is reported via the scope when the number is formatted
+	// and the value falls back to its plain rendering.
 	optErr error
 }
 
 // NewNumber constructs a Number with the given value and options.
 func NewNumber(value float64, opts NumberOptions) *Number {
-	return &Number{value: value, opts: opts}
+	return &Number{Value: value, Options: opts}
 }
 
-// Value returns the wrapped numeric value.
-func (n *Number) Value() float64 { return n.value }
+func (n *Number) numberValue() (float64, NumberOptions) { return n.Value, n.Options }
 
-// Opts returns the number's formatting options.
-func (n *Number) Opts() NumberOptions { return n.opts }
-
-func (n *Number) numberValue() (float64, NumberOptions) { return n.value, n.opts }
-
-// Format renders the number using the bundle's NumberFormatter. A deferred
-// option error is reported via the scope and the value falls back to its plain
-// decimal rendering, mirroring Intl.NumberFormat throwing in fluent.js.
+// Format renders the number using the bundle's NumberFormatter.
 func (n *Number) Format(scope *Scope) string {
 	if n.optErr != nil {
 		if scope != nil {
 			scope.reportError(n.optErr)
 		}
-		return strconv.FormatFloat(n.value, 'f', -1, 64)
+		return strconv.FormatFloat(n.Value, 'f', -1, 64)
 	}
 	if scope != nil {
-		return scope.bundle.numberFormatter.FormatNumber(scope.bundle.locale, n.value, n.opts)
+		return scope.bundle.numberFormatter.FormatNumber(scope.bundle.locale, n.Value, n.Options)
 	}
-	return strconv.FormatFloat(n.value, 'f', -1, 64)
+	return strconv.FormatFloat(n.Value, 'f', -1, 64)
 }
 
-// DateTime is a FluentType representing a date/time (FluentDateTime in
-// fluent.js). It stores a time.Time plus an option bag passed to the
-// DateTimeFormatter.
+// DateTime is the Value for a date/time (FluentDateTime in fluent.js): a
+// time.Time plus the option bag passed to the DateTimeFormatter.
 type DateTime struct {
-	value time.Time
-	opts  DateTimeOptions
+	Time    time.Time
+	Options DateTimeOptions
 }
 
 // NewDateTime constructs a DateTime with the given time and options.
-func NewDateTime(value time.Time, opts DateTimeOptions) *DateTime {
-	return &DateTime{value: value, opts: opts}
+func NewDateTime(t time.Time, opts DateTimeOptions) *DateTime {
+	return &DateTime{Time: t, Options: opts}
 }
-
-// Value returns the wrapped time.Time.
-func (d *DateTime) Value() time.Time { return d.value }
-
-// Opts returns the datetime's formatting options.
-func (d *DateTime) Opts() DateTimeOptions { return d.opts }
 
 // toNumber returns the timestamp in milliseconds since the Unix epoch,
 // mirroring FluentDateTime.toNumber() in fluent.js.
 func (d *DateTime) toNumber() float64 {
-	return float64(d.value.UnixMilli())
+	return float64(d.Time.UnixMilli())
 }
 
 // Format renders the datetime using the bundle's DateTimeFormatter.
 func (d *DateTime) Format(scope *Scope) string {
 	if scope != nil {
-		return scope.bundle.dateTimeFormatter.FormatDateTime(scope.bundle.locale, d.value, d.opts)
+		return scope.bundle.dateTimeFormatter.FormatDateTime(scope.bundle.locale, d.Time, d.Options)
 	}
-	return cldrDateTimeFormatter{}.FormatDateTime("", d.value, d.opts)
+	return cldrDateTimeFormatter{}.FormatDateTime("", d.Time, d.Options)
 }

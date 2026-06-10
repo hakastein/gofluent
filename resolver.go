@@ -14,8 +14,8 @@ const MaxPlaceables = 100
 
 // Unicode bidi isolation characters.
 const (
-	fsi = "⁨" // U+2068 FIRST STRONG ISOLATE
-	pdi = "⁩" // U+2069 POP DIRECTIONAL ISOLATE
+	fsi = "⁨" // FIRST STRONG ISOLATE
+	pdi = "⁩" // POP DIRECTIONAL ISOLATE
 )
 
 // Error kinds collected by FormatPattern, mirroring the JS error classes
@@ -63,8 +63,8 @@ func newTypeError(format string, a ...any) *typeError {
 
 // matchSelector matches a variant key against the given selector.
 func matchSelector(scope *Scope, selector, key Value) bool {
-	if ss, ok := selector.(FluentString); ok {
-		if ks, ok := key.(FluentString); ok {
+	if ss, ok := selector.(String); ok {
+		if ks, ok := key.(String); ok {
 			return ss == ks
 		}
 	}
@@ -84,7 +84,7 @@ func matchSelector(scope *Scope, selector, key Value) bool {
 
 	// Numeric selector against a string key: consult the plural rules.
 	if selIsNum {
-		if ks, ok := key.(FluentString); ok {
+		if ks, ok := key.(String); ok {
 			sv, sopts := selNum.numberValue()
 			var category string
 			if sopts.Type == "ordinal" {
@@ -102,52 +102,42 @@ func matchSelector(scope *Scope, selector, key Value) bool {
 }
 
 // getDefault resolves the default variant from a list of variants.
-func getDefault(scope *Scope, variants []Variant, star int) Value {
+func getDefault(scope *Scope, variants []variant, star int) Value {
 	if star >= 0 && star < len(variants) {
-		return resolvePattern(scope, variants[star].Value)
+		return resolvePattern(scope, variants[star].value)
 	}
 	scope.reportError(newRangeError("No default"))
 	return NewNone("")
 }
 
-// arguments holds resolved call arguments.
-type arguments struct {
-	positional []Value
-	named      map[string]Value
-}
-
-// getArguments resolves arguments to a call expression.
-func getArguments(scope *Scope, args []any) arguments {
-	var positional []Value
-	named := make(map[string]Value)
-
-	for _, arg := range args {
-		if narg, ok := arg.(*NamedArgument); ok {
-			named[narg.Name] = resolveExpression(scope, narg.Value)
-		} else {
-			positional = append(positional, resolveExpression(scope, arg))
-		}
+// resolveArguments resolves the arguments of a term or function call.
+func resolveArguments(scope *Scope, args callArguments) (positional []Value, named map[string]Value) {
+	for _, arg := range args.positional {
+		positional = append(positional, resolveExpression(scope, arg))
 	}
-
-	return arguments{positional: positional, named: named}
+	named = make(map[string]Value, len(args.named))
+	for _, arg := range args.named {
+		named[arg.name] = resolveExpression(scope, arg.value)
+	}
+	return positional, named
 }
 
 // resolveExpression resolves an expression to a Value.
-func resolveExpression(scope *Scope, expr Expression) Value {
+func resolveExpression(scope *Scope, expr expression) Value {
 	switch e := expr.(type) {
-	case *StringLiteral:
-		return FluentString(e.Value)
-	case *NumberLiteral:
-		return NewNumber(e.Value, NumberOptions{MinimumFractionDigits: intPtr(e.Precision)})
-	case *VariableReference:
+	case *stringLiteral:
+		return String(e.value)
+	case *numberLiteral:
+		return NewNumber(e.value, NumberOptions{MinimumFractionDigits: intPtr(e.precision)})
+	case *variableReference:
 		return resolveVariableReference(scope, e)
-	case *MessageReference:
+	case *messageReference:
 		return resolveMessageReference(scope, e)
-	case *TermReference:
+	case *termReference:
 		return resolveTermReference(scope, e)
-	case *FunctionReference:
+	case *functionReference:
 		return resolveFunctionReference(scope, e)
-	case *SelectExpression:
+	case *selectExpression:
 		return resolveSelectExpression(scope, e)
 	default:
 		return NewNone("")
@@ -155,13 +145,13 @@ func resolveExpression(scope *Scope, expr Expression) Value {
 }
 
 // resolveVariableReference resolves a reference to a variable.
-func resolveVariableReference(scope *Scope, ref *VariableReference) Value {
-	name := ref.Name
+func resolveVariableReference(scope *Scope, ref *variableReference) Value {
+	name := ref.name
 	var arg Value
 	var found bool
 
 	if scope.paramsSet {
-		// Inside a TermReference. It's OK to reference undefined parameters.
+		// Inside a termReference. It's OK to reference undefined parameters.
 		if v, ok := scope.params[name]; ok {
 			arg = v
 			found = true
@@ -178,8 +168,8 @@ func resolveVariableReference(scope *Scope, ref *VariableReference) Value {
 		return NewNone("$" + name)
 	}
 
-	// The arg is already a Value (args are normalized on entry). However a nil
-	// Value signals an unsupported type that was stored to preserve the key.
+	// Args are normalized to Values on entry; a nil Value marks an argument
+	// of an unsupported Go type whose key was preserved.
 	if arg == nil {
 		scope.reportError(newTypeError("Variable type not supported: $%s", name))
 		return NewNone("$" + name)
@@ -188,77 +178,75 @@ func resolveVariableReference(scope *Scope, ref *VariableReference) Value {
 }
 
 // resolveMessageReference resolves a reference to another message.
-func resolveMessageReference(scope *Scope, ref *MessageReference) Value {
-	message, ok := scope.bundle.lookupMessage(ref.Name)
+func resolveMessageReference(scope *Scope, ref *messageReference) Value {
+	message, ok := scope.bundle.lookupMessage(ref.name)
 	if !ok {
-		scope.reportError(newReferenceError("Unknown message: %s", ref.Name))
-		return NewNone(ref.Name)
+		scope.reportError(newReferenceError("Unknown message: %s", ref.name))
+		return NewNone(ref.name)
 	}
 
-	if ref.Attr != "" {
-		if attribute, ok := message.Attributes[ref.Attr]; ok {
+	if ref.attr != "" {
+		if attribute, ok := message.Attributes[ref.attr]; ok {
 			return resolvePattern(scope, attribute)
 		}
-		scope.reportError(newReferenceError("Unknown attribute: %s", ref.Attr))
-		return NewNone(ref.Name + "." + ref.Attr)
+		scope.reportError(newReferenceError("Unknown attribute: %s", ref.attr))
+		return NewNone(ref.name + "." + ref.attr)
 	}
 
 	if message.Value != nil {
 		return resolvePattern(scope, message.Value)
 	}
 
-	scope.reportError(newReferenceError("No value: %s", ref.Name))
-	return NewNone(ref.Name)
+	scope.reportError(newReferenceError("No value: %s", ref.name))
+	return NewNone(ref.name)
 }
 
-// resolveTermReference resolves a call to a Term with key-value arguments.
-func resolveTermReference(scope *Scope, ref *TermReference) Value {
-	id := "-" + ref.Name
-	term, ok := scope.bundle.lookupTerm(id)
+// withTermParams resolves pattern with the term's own parameters installed.
+// Mirroring fluent.js (resolver.ts sets `scope.params = ...` and then
+// `scope.params = null`), the params are cleared afterwards rather than
+// restored — a variable referenced after an embedded term resolves against
+// the top-level args.
+func withTermParams(scope *Scope, args callArguments, pattern Pattern) Value {
+	_, scope.params = resolveArguments(scope, args)
+	scope.paramsSet = true
+	resolved := resolvePattern(scope, pattern)
+	scope.params, scope.paramsSet = nil, false
+	return resolved
+}
+
+// resolveTermReference resolves a call to a term with key-value arguments.
+func resolveTermReference(scope *Scope, ref *termReference) Value {
+	id := "-" + ref.name
+	t, ok := scope.bundle.lookupTerm(id)
 	if !ok {
 		scope.reportError(newReferenceError("Unknown term: %s", id))
 		return NewNone(id)
 	}
 
-	if ref.Attr != "" {
-		if attribute, ok := term.Attributes[ref.Attr]; ok {
-			// Every TermReference has its own variables. Mirroring fluent.js
-			// (resolver.ts: `scope.params = ...` then `scope.params = null`), the
-			// params are cleared after resolving rather than restored to whatever
-			// term was being resolved before — so a variable referenced after an
-			// embedded term resolves against the top-level args.
-			scope.params = getArguments(scope, ref.Args).named
-			scope.paramsSet = true
-			resolved := resolvePattern(scope, attribute)
-			scope.params, scope.paramsSet = nil, false
-			return resolved
+	if ref.attr != "" {
+		if attribute, ok := t.attributes[ref.attr]; ok {
+			return withTermParams(scope, ref.args, attribute)
 		}
-		scope.reportError(newReferenceError("Unknown attribute: %s", ref.Attr))
-		return NewNone(id + "." + ref.Attr)
+		scope.reportError(newReferenceError("Unknown attribute: %s", ref.attr))
+		return NewNone(id + "." + ref.attr)
 	}
 
-	// See the note above: set params for this term's body, then null them out
-	// (do not restore a previous bag), matching fluent.js.
-	scope.params = getArguments(scope, ref.Args).named
-	scope.paramsSet = true
-	resolved := resolvePattern(scope, term.Value)
-	scope.params, scope.paramsSet = nil, false
-	return resolved
+	return withTermParams(scope, ref.args, t.value)
 }
 
 // resolveFunctionReference resolves a call to a Function.
-func resolveFunctionReference(scope *Scope, ref *FunctionReference) Value {
-	fn, ok := scope.bundle.lookupFunction(ref.Name)
+func resolveFunctionReference(scope *Scope, ref *functionReference) Value {
+	fn, ok := scope.bundle.lookupFunction(ref.name)
 	if !ok {
-		scope.reportError(newReferenceError("Unknown function: %s()", ref.Name))
-		return NewNone(ref.Name + "()")
+		scope.reportError(newReferenceError("Unknown function: %s()", ref.name))
+		return NewNone(ref.name + "()")
 	}
 
-	resolved := getArguments(scope, ref.Args)
-	result, err := callFunction(fn, resolved.positional, resolved.named)
+	positional, named := resolveArguments(scope, ref.args)
+	result, err := callFunction(fn, positional, named)
 	if err != nil {
 		scope.reportError(err)
-		return NewNone(ref.Name + "()")
+		return NewNone(ref.name + "()")
 	}
 	return result
 }
@@ -283,24 +271,24 @@ func callFunction(fn Function, positional []Value, named map[string]Value) (resu
 }
 
 // resolveSelectExpression resolves a select expression to the member value.
-func resolveSelectExpression(scope *Scope, expr *SelectExpression) Value {
-	sel := resolveExpression(scope, expr.Selector)
+func resolveSelectExpression(scope *Scope, expr *selectExpression) Value {
+	sel := resolveExpression(scope, expr.selector)
 	if _, isNone := sel.(*None); isNone {
-		return getDefault(scope, expr.Variants, expr.Star)
+		return getDefault(scope, expr.variants, expr.star)
 	}
 
-	for _, variant := range expr.Variants {
-		key := resolveExpression(scope, variant.Key)
+	for _, v := range expr.variants {
+		key := resolveExpression(scope, v.key)
 		if matchSelector(scope, sel, key) {
-			return resolvePattern(scope, variant.Value)
+			return resolvePattern(scope, v.value)
 		}
 	}
 
-	return getDefault(scope, expr.Variants, expr.Star)
+	return getDefault(scope, expr.variants, expr.star)
 }
 
 // resolveComplexPattern resolves a complex pattern (text with placeables).
-func resolveComplexPattern(scope *Scope, ptn ComplexPattern) Value {
+func resolveComplexPattern(scope *Scope, ptn complexPattern) Value {
 	key := patternKey(ptn)
 	if key != nil && scope.dirty[key] {
 		scope.reportError(newRangeError("Cyclic reference"))
@@ -318,8 +306,8 @@ func resolveComplexPattern(scope *Scope, ptn ComplexPattern) Value {
 	useIsolating := scope.bundle.useIsolating && len(ptn) > 1
 
 	for _, elem := range ptn {
-		if str, ok := elem.(string); ok {
-			sb.WriteString(scope.bundle.transform(str))
+		if text, ok := elem.(textElement); ok {
+			sb.WriteString(scope.bundle.transform(string(text)))
 			continue
 		}
 
@@ -329,7 +317,7 @@ func resolveComplexPattern(scope *Scope, ptn ComplexPattern) Value {
 				delete(scope.dirty, key)
 			}
 			// Fatal error: bail out instantly. The length check protects
-			// against excessive memory; "throwing" protects the CPU when long
+			// against excessive memory; aborting protects the CPU when long
 			// placeables are deeply nested.
 			panic(fluentPanic{newRangeError(
 				"Too many placeables expanded: %d, max allowed is %d",
@@ -337,10 +325,14 @@ func resolveComplexPattern(scope *Scope, ptn ComplexPattern) Value {
 			)})
 		}
 
+		expr, ok := elem.(expression)
+		if !ok {
+			continue
+		}
 		if useIsolating {
 			sb.WriteString(fsi)
 		}
-		sb.WriteString(resolveExpression(scope, elem).Format(scope))
+		sb.WriteString(resolveExpression(scope, expr).Format(scope))
 		if useIsolating {
 			sb.WriteString(pdi)
 		}
@@ -349,13 +341,13 @@ func resolveComplexPattern(scope *Scope, ptn ComplexPattern) Value {
 	if key != nil {
 		delete(scope.dirty, key)
 	}
-	return FluentString(sb.String())
+	return String(sb.String())
 }
 
 // patternKey returns a stable identity for a complex pattern, used as the dirty
 // set key. It is the address of the pattern's first element. Empty patterns
 // have no identity (and cannot be cyclic), so nil is returned.
-func patternKey(ptn ComplexPattern) *PatternElement {
+func patternKey(ptn complexPattern) *patternElement {
 	if len(ptn) == 0 {
 		return nil
 	}
@@ -364,14 +356,14 @@ func patternKey(ptn ComplexPattern) *PatternElement {
 
 // resolvePattern resolves a simple or complex Pattern to a Value.
 func resolvePattern(scope *Scope, value Pattern) Value {
-	if value == nil {
+	switch p := value.(type) {
+	case nil:
+		return NewNone("")
+	case textPattern:
+		return String(scope.bundle.transform(string(p)))
+	case complexPattern:
+		return resolveComplexPattern(scope, p)
+	default:
 		return NewNone("")
 	}
-	if str, ok := value.(string); ok {
-		return FluentString(scope.bundle.transform(str))
-	}
-	if cp, ok := value.(ComplexPattern); ok {
-		return resolveComplexPattern(scope, cp)
-	}
-	return NewNone("")
 }

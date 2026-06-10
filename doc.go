@@ -27,21 +27,21 @@
 //
 // # Basic use
 //
-//	res, _ := fluent.NewResource("hello = Hello, { $name }!")
+//	res := fluent.NewResource("hello = Hello, { $name }!")
 //	b := fluent.NewBundle("en")
 //	b.AddResource(res)
-//	msg, _ := b.GetMessage("hello")
-//	var errs []error
-//	out := b.FormatPatternAny(msg.Value, map[string]any{"name": "World"}, &errs)
+//	msg, _ := b.Message("hello")
+//	out, errs := b.FormatPattern(msg.Value, map[string]any{"name": "World"})
 //
-// The resolver is fault-tolerant: it never panics. Missing references and other
-// problems are appended to the errors slice and rendered as fluent.js-style
-// placeholders (for example {$name}); a best-effort string is always returned.
+// The resolver is fault-tolerant: it never panics. Missing references and
+// other problems are reported in the returned errors and rendered as
+// fluent.js-style placeholders (for example {$name}); a best-effort string is
+// always returned.
 //
 // By default placeables are wrapped in Unicode bidirectional isolation marks
 // (FSI/PDI). Disable this with [WithUseIsolating](false).
 //
-// A [Bundle] is safe for concurrent use: FormatPattern, HasMessage, GetMessage,
-// and the Add* methods (AddFunction, AddResource, AddResourceOverriding) may run
-// from multiple goroutines at once.
+// A [Bundle] is safe for concurrent use: FormatPattern, Message, and the Add*
+// methods (AddFunction, AddResource, AddResourceOverriding) may run from
+// multiple goroutines at once.
 package fluent

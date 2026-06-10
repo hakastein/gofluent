@@ -11,17 +11,16 @@ import (
 // rendering `{NAME()}`. Mirrors FluentFunction in fluent.js.
 type Function func(positional []Value, named map[string]Value) (Value, error)
 
-// TextTransform transforms the text parts of patterns. Mirrors TextTransform.
+// TextTransform transforms the text parts of patterns.
 type TextTransform func(string) string
 
 // Bundle is a single-language store of translation resources, responsible for
 // formatting message values and attributes to strings.
 //
-// A Bundle is safe for concurrent use: FormatPattern/FormatPatternAny,
-// HasMessage, GetMessage, AddFunction, AddResource, and AddResourceOverriding
-// may be called from multiple goroutines simultaneously. The messages, terms,
-// and functions maps are guarded by mu; the locale and the injected formatters
-// are set once at construction and never mutated afterwards.
+// A Bundle is safe for concurrent use: FormatPattern, Message, AddFunction,
+// AddResource, and AddResourceOverriding may be called from multiple
+// goroutines simultaneously. The locale and the injected formatters are set
+// once at construction and never mutated afterwards.
 type Bundle struct {
 	// locale is the primary BCP-47 tag passed to the pluggable formatters;
 	// locales keeps the full fallback list set by WithLocales.
@@ -32,7 +31,7 @@ type Bundle struct {
 	// never across a whole FormatPattern or a user-function call, so a function
 	// that itself calls AddFunction does not deadlock.
 	mu        sync.RWMutex
-	terms     map[string]*Term
+	terms     map[string]*term
 	messages  map[string]*Message
 	functions map[string]Function
 
@@ -44,18 +43,18 @@ type Bundle struct {
 	pluralRules       PluralRules
 }
 
-// BundleOption configures a Bundle in NewBundle.
-type BundleOption func(*Bundle)
+// Option configures a Bundle in NewBundle.
+type Option func(*Bundle)
 
 // WithUseIsolating sets whether to wrap interpolations in Unicode isolation
 // marks (FSI/PDI). Default is true.
-func WithUseIsolating(v bool) BundleOption {
+func WithUseIsolating(v bool) Option {
 	return func(b *Bundle) { b.useIsolating = v }
 }
 
 // WithFunctions registers additional builtin functions, merged over NUMBER and
 // DATETIME.
-func WithFunctions(fns map[string]Function) BundleOption {
+func WithFunctions(fns map[string]Function) Option {
 	return func(b *Bundle) {
 		for name, fn := range fns {
 			b.functions[name] = fn
@@ -64,7 +63,7 @@ func WithFunctions(fns map[string]Function) BundleOption {
 }
 
 // WithTransform sets the text transform applied to string parts of patterns.
-func WithTransform(t TextTransform) BundleOption {
+func WithTransform(t TextTransform) Option {
 	return func(b *Bundle) {
 		if t != nil {
 			b.transform = t
@@ -73,7 +72,7 @@ func WithTransform(t TextTransform) BundleOption {
 }
 
 // WithNumberFormatter injects a NumberFormatter (replaces the CLDR-backed default).
-func WithNumberFormatter(f NumberFormatter) BundleOption {
+func WithNumberFormatter(f NumberFormatter) Option {
 	return func(b *Bundle) {
 		if f != nil {
 			b.numberFormatter = f
@@ -82,7 +81,7 @@ func WithNumberFormatter(f NumberFormatter) BundleOption {
 }
 
 // WithDateTimeFormatter injects a DateTimeFormatter (replaces the CLDR-backed default).
-func WithDateTimeFormatter(f DateTimeFormatter) BundleOption {
+func WithDateTimeFormatter(f DateTimeFormatter) Option {
 	return func(b *Bundle) {
 		if f != nil {
 			b.dateTimeFormatter = f
@@ -91,7 +90,7 @@ func WithDateTimeFormatter(f DateTimeFormatter) BundleOption {
 }
 
 // WithPluralRules injects a PluralRules implementation (replaces the CLDR-backed default).
-func WithPluralRules(p PluralRules) BundleOption {
+func WithPluralRules(p PluralRules) Option {
 	return func(b *Bundle) {
 		if p != nil {
 			b.pluralRules = p
@@ -101,7 +100,7 @@ func WithPluralRules(p PluralRules) BundleOption {
 
 // WithLocales sets the full locale fallback list. The first entry becomes the
 // primary locale passed to formatters.
-func WithLocales(locales ...string) BundleOption {
+func WithLocales(locales ...string) Option {
 	return func(b *Bundle) {
 		if len(locales) > 0 {
 			b.locales = append([]string(nil), locales...)
@@ -116,11 +115,11 @@ func WithLocales(locales ...string) BundleOption {
 // Applications must blank-import the locale data they format, e.g.
 // import _ "github.com/hakastein/gocldr/locales/ru" (or .../locales/all);
 // with none imported, formatting degrades to the CLDR root / RFC 3339.
-func NewBundle(locale string, opts ...BundleOption) *Bundle {
+func NewBundle(locale string, opts ...Option) *Bundle {
 	b := &Bundle{
 		locale:   locale,
 		locales:  []string{locale},
-		terms:    make(map[string]*Term),
+		terms:    make(map[string]*term),
 		messages: make(map[string]*Message),
 		functions: map[string]Function{
 			"NUMBER":   builtinNUMBER,
@@ -148,14 +147,8 @@ func (b *Bundle) AddFunction(name string, fn Function) {
 	b.mu.Unlock()
 }
 
-// HasMessage reports whether a public message with the given id exists.
-func (b *Bundle) HasMessage(id string) bool {
-	_, ok := b.lookupMessage(id)
-	return ok
-}
-
-// GetMessage returns the raw message with the given id, if present.
-func (b *Bundle) GetMessage(id string) (*Message, bool) {
+// Message returns the message with the given id, if present.
+func (b *Bundle) Message(id string) (*Message, bool) {
 	return b.lookupMessage(id)
 }
 
@@ -169,7 +162,7 @@ func (b *Bundle) lookupMessage(id string) (*Message, bool) {
 
 // lookupTerm returns the term with the given id (including the leading "-")
 // under a read lock.
-func (b *Bundle) lookupTerm(id string) (*Term, bool) {
+func (b *Bundle) lookupTerm(id string) (*term, bool) {
 	b.mu.RLock()
 	t, ok := b.terms[id]
 	b.mu.RUnlock()
@@ -202,16 +195,16 @@ func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, entry := range res.Body {
-		switch e := entry.(type) {
-		case *Term:
+	for _, e := range res.entries {
+		switch e := e.(type) {
+		case *term:
 			if !allowOverrides {
-				if _, exists := b.terms[e.ID]; exists {
-					errs = append(errs, newOverrideError("term", e.ID))
+				if _, exists := b.terms[e.id]; exists {
+					errs = append(errs, newOverrideError("term", e.id))
 					continue
 				}
 			}
-			b.terms[e.ID] = e
+			b.terms[e.id] = e
 		case *Message:
 			if !allowOverrides {
 				if _, exists := b.messages[e.ID]; exists {
@@ -234,77 +227,64 @@ type overrideError struct{ msg string }
 
 func (e *overrideError) Error() string { return e.msg }
 
-// FormatPattern formats a Pattern to a string. args resolves variable
-// references; pass nil for none.
+// FormatPattern formats a Pattern — a Message value or attribute — to a
+// string. args resolves variable references; pass nil for none. Argument
+// values may be strings, any integer or float type, time.Time, or a Value
+// (e.g. a Number carrying formatting options); other types render as a
+// missing-variable fallback with an error.
 //
-// errs selects the error mode, mirroring fluent.js:
-//   - Non-nil errs is collect mode: every resolution error is appended to *errs
-//     and a best-effort string is always returned (the resolver never panics).
-//   - Nil errs is throw mode: the first resolution error is "thrown" (panics out
-//     of FormatPattern). The caller is responsible for recovering it. Use this
-//     only when you want strict failure rather than fault-tolerant rendering.
-//
-// args accepts a map[string]Value (already-typed) — see FormatPatternAny for a
-// map[string]any convenience wrapper.
-func (b *Bundle) FormatPattern(pattern Pattern, args map[string]Value, errs *[]error) string {
-	// Resolve a simple pattern without creating a scope.
-	if s, ok := pattern.(string); ok {
-		return b.transform(s)
-	}
-
-	scope := newScope(b, errs, args)
-
-	var result string
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fp, ok := r.(fluentPanic)
-				if !ok {
-					panic(r)
-				}
-				if scope.errors != nil {
-					*scope.errors = append(*scope.errors, fp.err)
-					result = NewNone("").Format(scope)
-					return
-				}
-				// No error sink: rethrow.
-				panic(fp)
-			}
-		}()
-		// A nil value (e.g. a message with only attributes) mirrors fluent.js
-		// formatPattern(null): resolving a non-array as a complex pattern
-		// throws a TypeError, collected and rendered as the {???} fallback.
-		if pattern == nil {
-			scope.reportError(newTypeError("Cannot format null value"))
-			result = NewNone("").Format(scope)
-			return
-		}
-		cp, ok := pattern.(ComplexPattern)
-		if !ok {
-			result = NewNone("").Format(scope)
-			return
-		}
-		result = resolveComplexPattern(scope, cp).Format(scope)
-	}()
-	return result
-}
-
-// FormatPatternAny is a convenience wrapper accepting raw Go argument values
-// (map[string]any). Values are converted to Fluent Values via coerceArg.
+// Formatting is fault-tolerant: a best-effort string is always returned, and
+// every problem encountered (missing references, type mismatches, ...) is
+// reported in errs, each classified by one of the ErrReference / ErrRange /
+// ErrType sentinels.
 //
 // Precision note: integer arguments are stored as float64 (Fluent's only
 // numeric type, matching JS). int64/uint64 magnitudes above 2^53 cannot be
 // represented exactly and may be rounded; pass a preformatted string (or a
 // custom Value) when exact rendering of such large integers matters.
-func (b *Bundle) FormatPatternAny(pattern Pattern, args map[string]any, errs *[]error) string {
-	var typed map[string]Value
-	if args != nil {
-		typed = make(map[string]Value, len(args))
-		for k, v := range args {
-			typed[k] = coerceArg(v)
-		}
+func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (result string, errs []error) {
+	// A simple pattern resolves without a scope.
+	if s, ok := pattern.(textPattern); ok {
+		return b.transform(string(s)), nil
 	}
-	return b.FormatPattern(pattern, typed, errs)
+
+	scope := newScope(b, coerceArgs(args))
+
+	defer func() {
+		if r := recover(); r != nil {
+			fp, ok := r.(fluentPanic)
+			if !ok {
+				panic(r)
+			}
+			scope.reportError(fp.err)
+			result = NewNone("").Format(scope)
+			errs = scope.errs
+		}
+	}()
+
+	// A nil pattern (e.g. a message with only attributes) mirrors fluent.js
+	// formatPattern(null): a type error, rendered as the {???} fallback.
+	if pattern == nil {
+		scope.reportError(newTypeError("Cannot format null value"))
+		return NewNone("").Format(scope), scope.errs
+	}
+	cp, ok := pattern.(complexPattern)
+	if !ok {
+		return NewNone("").Format(scope), scope.errs
+	}
+	return resolveComplexPattern(scope, cp).Format(scope), scope.errs
+}
+
+// coerceArgs converts raw Go argument values into Fluent Values.
+func coerceArgs(args map[string]any) map[string]Value {
+	if args == nil {
+		return nil
+	}
+	typed := make(map[string]Value, len(args))
+	for k, v := range args {
+		typed[k] = coerceArg(v)
+	}
+	return typed
 }
 
 // coerceArg converts a raw Go argument value into a Fluent Value. Unsupported
@@ -317,7 +297,7 @@ func coerceArg(v any) Value {
 	case Value:
 		return x
 	case string:
-		return FluentString(x)
+		return String(x)
 	case float64:
 		return NewNumber(x, NumberOptions{})
 	case float32:

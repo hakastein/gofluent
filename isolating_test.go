@@ -7,8 +7,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Ported from isolating_test.js. FSI = U+2068, PDI = U+2069 (declared in
-// bundle_test.go as fsi/pdi).
+// Ported from isolating_test.js.
+
+// fsi / pdi are the Unicode bidi isolation marks the bundle wraps placeables in
+// when useIsolating is enabled (FSI = U+2068, PDI = U+2069). Declared locally so
+// these tests assert against the public rendering without reaching into the
+// package's unexported constants.
+const (
+	fsi = "⁨"
+	pdi = "⁩"
+)
 
 func newIsolatingBundle(t *testing.T) *fluent.Bundle {
 	t.Helper()
@@ -17,7 +25,7 @@ func newIsolatingBundle(t *testing.T) *fluent.Bundle {
 		"baz = { $arg } Baz\n" +
 		"qux = { bar } { baz }\n"
 	b := fluent.NewBundle("en-US")
-	b.AddResource(mustParse(t, src))
+	b.AddResource(fluent.NewResource(src))
 	return b
 }
 
@@ -54,7 +62,7 @@ func TestIsolatesComplexInterpolations(t *testing.T) {
 func TestSkipsIsolationSinglePlaceable(t *testing.T) {
 	src := "-brand-short-name = Amaya\nfoo = { -brand-short-name }\n"
 	b := fluent.NewBundle("en-US")
-	b.AddResource(mustParse(t, src))
+	b.AddResource(fluent.NewResource(src))
 	got, errs := format(t, b, "foo", nil)
 	assert.Equal(t, "Amaya", got)
 	assert.Empty(t, errs)

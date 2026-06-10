@@ -21,7 +21,7 @@ import (
 func cldrBundle(t *testing.T, locale, src string) *fluent.Bundle {
 	t.Helper()
 	b := fluent.NewBundle(locale, fluent.WithUseIsolating(false))
-	require.Empty(t, b.AddResource(mustParse(t, src)), "AddResource errors")
+	require.Empty(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
 	return b
 }
 

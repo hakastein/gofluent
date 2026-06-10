@@ -29,27 +29,34 @@ func TestFormattingValues(t *testing.T) {
 	tests := []struct {
 		id      string
 		want    string
-		wantErr int
+		wantErr error // nil means no errors expected
 	}{
-		{"key1", "Value 1", 0},
-		{"key2", "B2", 1},
-		{"key3", "Value 3", 0},
-		{"key4", "B4", 1},
-		{"key5", "{???}", 1},
+		{"key1", "Value 1", nil},
+		{"key2", "B2", fluent.ErrReference},
+		{"key3", "Value 3", nil},
+		{"key4", "B4", fluent.ErrReference},
+		{"key5", "{???}", fluent.ErrType},
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
 			got, errs := format(t, b, tc.id, nil)
 			assert.Equal(t, tc.want, got)
-			assert.Len(t, errs, tc.wantErr)
+			if tc.wantErr == nil {
+				assert.Empty(t, errs)
+			} else {
+				require.Len(t, errs, 1)
+				require.ErrorIs(t, errs[0], tc.wantErr)
+			}
 		})
 	}
 
 	// Attributes directly.
-	msg, _ := b.GetMessage("key5")
-	var errs []error
-	assert.Equal(t, "A5", b.FormatPattern(msg.Attributes["a"], nil, &errs))
-	assert.Equal(t, "B5", b.FormatPattern(msg.Attributes["b"], nil, &errs))
+	msg, _ := b.Message("key5")
+	got, errs := b.FormatPattern(msg.Attributes["a"], nil)
+	assert.Equal(t, "A5", got)
+	assert.Empty(t, errs)
+	got, errs = b.FormatPattern(msg.Attributes["b"], nil)
+	assert.Equal(t, "B5", got)
 	assert.Empty(t, errs)
 }
 
@@ -96,62 +103,34 @@ func TestReferencingValues(t *testing.T) {
 	tests := []struct {
 		id      string
 		want    string
-		wantErr int
+		wantErr error // nil means no errors expected
 	}{
-		{"ref1", "Value 1", 0},
-		{"ref2", "B2", 0},
-		{"ref3", "Value 3", 0},
-		{"ref4", "B4", 0},
-		{"ref5", "{key5}", 1},
-		{"ref6", "A2", 0},
-		{"ref7", "B2", 0},
-		{"ref8", "A4", 0},
-		{"ref9", "B4", 0},
-		{"ref10", "A5", 0},
-		{"ref11", "B5", 0},
-		{"ref12", "{key5.c}", 1},
-		{"ref13", "{key6}", 1},
-		{"ref14", "{key6}", 1},
-		{"ref15", "{-key6}", 1},
-		{"ref16", "A", 1},
+		{"ref1", "Value 1", nil},
+		{"ref2", "B2", nil},
+		{"ref3", "Value 3", nil},
+		{"ref4", "B4", nil},
+		{"ref5", "{key5}", fluent.ErrReference},
+		{"ref6", "A2", nil},
+		{"ref7", "B2", nil},
+		{"ref8", "A4", nil},
+		{"ref9", "B4", nil},
+		{"ref10", "A5", nil},
+		{"ref11", "B5", nil},
+		{"ref12", "{key5.c}", fluent.ErrReference},
+		{"ref13", "{key6}", fluent.ErrReference},
+		{"ref14", "{key6}", fluent.ErrReference},
+		{"ref15", "{-key6}", fluent.ErrReference},
+		{"ref16", "A", fluent.ErrReference},
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
 			got, errs := format(t, b, tc.id, nil)
 			assert.Equal(t, tc.want, got)
-			assert.Len(t, errs, tc.wantErr)
-		})
-	}
-}
-
-func TestPatternsReferences(t *testing.T) {
-	src := "foo = Foo\n" +
-		"-bar = Bar\n" +
-		"\n" +
-		"ref-message = { foo }\n" +
-		"ref-term = { -bar }\n" +
-		"\n" +
-		"ref-missing-message = { missing }\n" +
-		"ref-missing-term = { -missing }\n"
-	b := newTestBundle(t, src)
-
-	tests := []struct {
-		id      string
-		want    string
-		wantErr int
-	}{
-		{"ref-message", "Foo", 0},
-		{"ref-term", "Bar", 0},
-		{"ref-missing-message", "{missing}", 1},
-		{"ref-missing-term", "{-missing}", 1},
-	}
-	for _, tc := range tests {
-		t.Run(tc.id, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, nil)
-			assert.Equal(t, tc.want, got)
-			require.Len(t, errs, tc.wantErr)
-			if tc.wantErr > 0 {
-				require.ErrorIs(t, errs[0], fluent.ErrReference, "missing references report a reference error")
+			if tc.wantErr == nil {
+				assert.Empty(t, errs)
+			} else {
+				require.Len(t, errs, 1)
+				require.ErrorIs(t, errs[0], tc.wantErr)
 			}
 		})
 	}
@@ -165,11 +144,13 @@ func TestNullValueReference(t *testing.T) {
 
 	got, errs := format(t, b, "foo", nil)
 	assert.Equal(t, "{???}", got)
-	assert.Len(t, errs, 1)
+	require.Len(t, errs, 1)
+	require.ErrorIs(t, errs[0], fluent.ErrType)
 
-	msg, _ := b.GetMessage("foo")
-	var aerr []error
-	assert.Equal(t, "Foo Attr", b.FormatPattern(msg.Attributes["attr"], nil, &aerr))
+	msg, _ := b.Message("foo")
+	got, errs = b.FormatPattern(msg.Attributes["attr"], nil)
+	assert.Equal(t, "Foo Attr", got)
+	assert.Empty(t, errs)
 
 	got, errs = format(t, b, "bar", nil)
 	assert.Equal(t, "{foo} Bar", got)

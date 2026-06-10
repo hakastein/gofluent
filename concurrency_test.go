@@ -9,29 +9,31 @@ import (
 )
 
 // TestBundleConcurrentAccess exercises Bundle for the data race documented in
-// the contract: AddFunction/AddResourceOverriding mutate the bundle's maps while
-// FormatPattern/HasMessage read them. Run with -race to catch the regression.
+// the contract: AddFunction/AddResource/AddResourceOverriding mutate the
+// bundle's maps while FormatPattern/Message read them. Run with -race to catch
+// the regression.
 func TestBundleConcurrentAccess(t *testing.T) {
 	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-	b.AddResource(mustParse(t, "greet = { ECHO() } world\n"))
+	b.AddResource(fluent.NewResource("greet = { ECHO() } world\n"))
 
 	echo := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
-		return fluent.FluentString("hello"), nil
+		return fluent.String("hello"), nil
 	}
 	b.AddFunction("ECHO", echo)
 
-	msg, ok := b.GetMessage("greet")
+	msg, ok := b.Message("greet")
 	assert.True(t, ok)
 
 	var wg sync.WaitGroup
 
-	// Writer goroutine: continuously mutate the maps.
+	// Writer goroutine: continuously mutate the maps through every Add method.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
 			b.AddFunction("ECHO", echo)
-			b.AddResourceOverriding(mustParse(t, "extra = Extra\n"))
+			b.AddResource(fluent.NewResource("extra = Extra\n"))
+			b.AddResourceOverriding(fluent.NewResource("extra = Extra\n"))
 		}
 	}()
 
@@ -41,9 +43,8 @@ func TestBundleConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			var errs []error
-			b.FormatPattern(msg.Value, nil, &errs)
-			b.HasMessage("greet")
+			b.FormatPattern(msg.Value, nil)
+			b.Message("greet")
 		}
 	}()
 

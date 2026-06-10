@@ -12,23 +12,19 @@ import (
 // Example shows the minimal flow: parse a resource, add it to a bundle, look up
 // a message, and format its pattern with arguments.
 func Example() {
-	res, errs := fluent.NewResource("hello = Hello, { $name }!")
-	if len(errs) > 0 {
-		panic(errs[0])
-	}
+	res := fluent.NewResource("hello = Hello, { $name }!")
 
 	// useIsolating is disabled here so the output is plain ASCII; in production
 	// the default (true) wraps placeables in Unicode bidi isolation marks.
 	b := fluent.NewBundle("en", fluent.WithUseIsolating(false))
 	b.AddResource(res)
 
-	msg, ok := b.GetMessage("hello")
+	msg, ok := b.Message("hello")
 	if !ok {
 		panic("message not found")
 	}
 
-	var ferrs []error
-	out := b.FormatPatternAny(msg.Value, map[string]any{"name": "World"}, &ferrs)
+	out, _ := b.FormatPattern(msg.Value, map[string]any{"name": "World"})
 	fmt.Println(out)
 	// Output: Hello, World!
 }
@@ -45,14 +41,14 @@ emails =
        *[other] You have { $count } new emails.
     }
 `
-	res, _ := fluent.NewResource(src)
 	b := fluent.NewBundle("en", fluent.WithUseIsolating(false))
-	b.AddResource(res)
+	b.AddResource(fluent.NewResource(src))
 
-	msg, _ := b.GetMessage("emails")
-	var errs []error
-	fmt.Println(b.FormatPatternAny(msg.Value, map[string]any{"count": 1}, &errs))
-	fmt.Println(b.FormatPatternAny(msg.Value, map[string]any{"count": 5}, &errs))
+	msg, _ := b.Message("emails")
+	one, _ := b.FormatPattern(msg.Value, map[string]any{"count": 1})
+	five, _ := b.FormatPattern(msg.Value, map[string]any{"count": 5})
+	fmt.Println(one)
+	fmt.Println(five)
 	// Output:
 	// You have one new email.
 	// You have 5 new emails.
@@ -77,27 +73,25 @@ apples =
 total = Итого: { NUMBER($total) }
 updated = Обновлено { DATETIME($at, dateStyle: "long") }
 `
-	res, errs := fluent.NewResource(src)
-	if len(errs) > 0 {
-		panic(errs[0])
-	}
-
 	// CLDR formatters are installed by default; useIsolating is disabled so the
 	// output is plain text.
 	b := fluent.NewBundle("ru", fluent.WithUseIsolating(false))
-	b.AddResource(res)
+	b.AddResource(fluent.NewResource(src))
 
-	apples, _ := b.GetMessage("apples")
+	apples, _ := b.Message("apples")
 	for _, n := range []int{1, 2, 5, 21} {
-		fmt.Println(b.FormatPatternAny(apples.Value, map[string]any{"n": n}, nil))
+		out, _ := b.FormatPattern(apples.Value, map[string]any{"n": n})
+		fmt.Println(out)
 	}
 
-	total, _ := b.GetMessage("total")
-	fmt.Println(b.FormatPatternAny(total.Value, map[string]any{"total": 1234567}, nil))
+	total, _ := b.Message("total")
+	out, _ := b.FormatPattern(total.Value, map[string]any{"total": 1234567})
+	fmt.Println(out)
 
-	updated, _ := b.GetMessage("updated")
+	updated, _ := b.Message("updated")
 	at := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
-	fmt.Println(b.FormatPatternAny(updated.Value, map[string]any{"at": at}, nil))
+	out, _ = b.FormatPattern(updated.Value, map[string]any{"at": at})
+	fmt.Println(out)
 
 	// Output:
 	// 1 яблоко

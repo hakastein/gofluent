@@ -96,7 +96,7 @@ func TestNumberLiteralPluralCategory(t *testing.T) {
 	// WithPluralRules overrides the default: this stub reports "other" for every
 	// number, so the *[other] variant "B" is selected instead.
 	b2 := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(otherOnlyPluralRules{}))
-	b2.AddResource(mustParse(t, src))
+	b2.AddResource(fluent.NewResource(src))
 	got2, _ := format(t, b2, "foo", nil)
 	assert.Equal(t, "B", got2, "override forces the other category")
 }

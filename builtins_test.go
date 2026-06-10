@@ -93,7 +93,7 @@ func TestNumberBuiltinForwardsUnit(t *testing.T) {
 		fluent.WithUseIsolating(false),
 		fluent.WithNumberFormatter(rec),
 	)
-	b.AddResource(mustParse(t, "n = { NUMBER($arg, style: \"unit\", unit: \"kilometer\") }\n"))
+	b.AddResource(fluent.NewResource("n = { NUMBER($arg, style: \"unit\", unit: \"kilometer\") }\n"))
 
 	got, errs := format(t, b, "n", map[string]any{"arg": 5})
 	assert.Equal(t, "fmt", got)
@@ -109,25 +109,23 @@ func TestNumberBuiltinFluentNumberMerge(t *testing.T) {
 
 	// minimumFractionDigits=3 from the arg is retained unless overridden.
 	arg := fluent.NewNumber(1234, fluent.NumberOptions{MinimumFractionDigits: intPtr(3)})
-	msg, _ := b.GetMessage("num-bare")
-	var errs []error
-	assert.Equal(t, "1,234.000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "bare retains arg fraction digits")
+	got, errs := format(t, b, "num-bare", map[string]any{"arg": arg})
+	assert.Equal(t, "1,234.000", got, "bare retains arg fraction digits")
+	assert.Empty(t, errs)
 
 	// The call's minimumFractionDigits:1 overrides the arg's 3.
-	msg, _ = b.GetMessage("num-fraction-valid")
-	assert.Equal(t, "1,234.0", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs), "call overrides arg fraction digits")
-
+	got, errs = format(t, b, "num-fraction-valid", map[string]any{"arg": arg})
+	assert.Equal(t, "1,234.0", got, "call overrides arg fraction digits")
 	assert.Empty(t, errs)
 }
 
 func TestNumberBuiltinFromDateTime(t *testing.T) {
-	// NUMBER on a FluentDateTime yields its epoch-millis number.
+	// NUMBER on a DateTime argument yields its epoch-millis number.
 	b := newTestBundle(t, "num-bare = { NUMBER($arg) }\n")
 	date := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
 	arg := fluent.NewDateTime(date, fluent.DateTimeOptions{Month: "short", Day: "numeric"})
-	msg, _ := b.GetMessage("num-bare")
-	var errs []error
-	assert.Equal(t, "1,475,107,200,000", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &errs))
+	got, errs := format(t, b, "num-bare", map[string]any{"arg": arg})
+	assert.Equal(t, "1,475,107,200,000", got)
 	assert.Empty(t, errs)
 }
 
@@ -185,7 +183,7 @@ func TestDateTimeBuiltinForwardsOptions(t *testing.T) {
 	src := "tz = { DATETIME($arg, timeZone: \"America/New_York\") }\n" +
 		"cal = { DATETIME($arg, calendar: \"buddhist\") }\n" +
 		"ns = { DATETIME($arg, numberingSystem: \"arab\") }\n"
-	b.AddResource(mustParse(t, src))
+	b.AddResource(fluent.NewResource(src))
 
 	arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
 
@@ -215,19 +213,19 @@ func TestRuntimeFunctions(t *testing.T) {
 		for _, a := range args {
 			s += a.Format(nil)
 		}
-		return fluent.FluentString(s), nil
+		return fluent.String(s), nil
 	}
 	sum := func(args []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 		total := 0.0
 		for _, a := range args {
 			if n, ok := a.(*fluent.Number); ok {
-				total += n.Value()
+				total += n.Value
 			}
 		}
 		return fluent.NewNumber(total, fluent.NumberOptions{}), nil
 	}
 	platform := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
-		return fluent.FluentString("windows"), nil
+		return fluent.String("windows"), nil
 	}
 
 	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithFunctions(map[string]fluent.Function{
@@ -242,7 +240,7 @@ func TestRuntimeFunctions(t *testing.T) {
 		"      [windows] Options\n" +
 		"     *[other] Preferences\n" +
 		"  }\n"
-	b.AddResource(mustParse(t, src))
+	b.AddResource(fluent.NewResource(src))
 
 	got, errs := format(t, b, "foo", nil)
 	assert.Equal(t, "FooBar", got)
@@ -266,7 +264,7 @@ func TestFunctionErrorIsRecovered(t *testing.T) {
 	}
 	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 	b.AddFunction("BOOM", boom)
-	b.AddResource(mustParse(t, "foo = { BOOM() }\n"))
+	b.AddResource(fluent.NewResource("foo = { BOOM() }\n"))
 
 	got, errs := format(t, b, "foo", nil)
 	assert.Equal(t, "{BOOM()}", got)
@@ -282,7 +280,7 @@ func TestFunctionPanicHandling(t *testing.T) {
 		}
 		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 		b.AddFunction("PANICERR", panicErr)
-		b.AddResource(mustParse(t, "foo = { PANICERR() }\n"))
+		b.AddResource(fluent.NewResource("foo = { PANICERR() }\n"))
 
 		got, errs := format(t, b, "foo", nil)
 		assert.Equal(t, "{PANICERR()}", got)
@@ -295,7 +293,7 @@ func TestFunctionPanicHandling(t *testing.T) {
 		}
 		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 		b.AddFunction("PANICSTR", panicStr)
-		b.AddResource(mustParse(t, "foo = { PANICSTR() }\n"))
+		b.AddResource(fluent.NewResource("foo = { PANICSTR() }\n"))
 
 		got, errs := format(t, b, "foo", nil)
 		assert.Equal(t, "{PANICSTR()}", got)
@@ -309,17 +307,16 @@ func TestFunctionPanicHandling(t *testing.T) {
 			var m map[string]int
 			//lint:ignore SA5000 intentional: asserts a genuine runtime panic is not swallowed
 			m["x"] = 1 // assignment to entry in nil map -> runtime panic
-			return fluent.FluentString("unreachable"), nil
+			return fluent.String("unreachable"), nil
 		}
 		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 		b.AddFunction("NILDEREF", nilDeref)
-		b.AddResource(mustParse(t, "foo = { NILDEREF() }\n"))
+		b.AddResource(fluent.NewResource("foo = { NILDEREF() }\n"))
 
-		msg, ok := b.GetMessage("foo")
+		msg, ok := b.Message("foo")
 		require.True(t, ok)
 		assert.Panics(t, func() {
-			var errs []error
-			b.FormatPattern(msg.Value, nil, &errs)
+			b.FormatPattern(msg.Value, nil)
 		}, "a runtime panic inside a function must propagate")
 	})
 }

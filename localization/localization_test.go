@@ -11,13 +11,11 @@ import (
 )
 
 // mustBundle builds a bundle for locale from FTL source, failing the test on
-// resource/parse errors.
+// resource errors.
 func mustBundle(t *testing.T, locale, source string) *fluent.Bundle {
 	t.Helper()
 	b := fluent.NewBundle(locale)
-	res, errs := fluent.NewResource(source)
-	require.Emptyf(t, errs, "parse errors for %s", locale)
-	require.Emptyf(t, b.AddResource(res), "add errors for %s", locale)
+	require.Emptyf(t, b.AddResource(fluent.NewResource(source)), "add errors for %s", locale)
 	return b
 }
 

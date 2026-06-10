@@ -29,9 +29,10 @@ func TestVariablesInValues(t *testing.T) {
 	assert.Equal(t, "Foo 3", got)
 	assert.Empty(t, errs)
 
-	msg, _ := b.GetMessage("baz")
-	var aerr []error
-	assert.Equal(t, "Baz Attribute 3", b.FormatPatternAny(msg.Attributes["attr"], map[string]any{"num": 3}, &aerr))
+	msg, _ := b.Message("baz")
+	got, errs = b.FormatPattern(msg.Attributes["attr"], map[string]any{"num": 3})
+	assert.Equal(t, "Baz Attribute 3", got)
+	assert.Empty(t, errs)
 
 	got, errs = format(t, b, "qux", map[string]any{"num": 3})
 	assert.Equal(t, "Baz Variant A 3", got)
@@ -79,11 +80,11 @@ func TestVariableStringAndNumber(t *testing.T) {
 	assert.Equal(t, "1", got)
 	assert.Empty(t, errs)
 
-	// FluentNumber with minimumFractionDigits=2 renders 1.00.
+	// A Number argument with minimumFractionDigits=2 renders 1.00.
 	arg := fluent.NewNumber(1, fluent.NumberOptions{MinimumFractionDigits: intPtr(2)})
-	msg, _ := b.GetMessage("foo")
-	var verr []error
-	assert.Equal(t, "1.00", b.FormatPattern(msg.Value, map[string]fluent.Value{"arg": arg}, &verr))
+	got, errs = format(t, b, "foo", map[string]any{"arg": arg})
+	assert.Equal(t, "1.00", got)
+	assert.Empty(t, errs)
 }
 
 func TestVariableDate(t *testing.T) {
@@ -103,14 +104,13 @@ func (customValue) Format(_ *fluent.Scope) string { return "CUSTOM" }
 func TestCustomArgumentType(t *testing.T) {
 	src := "foo = { $arg }\nbar = { foo }\n"
 	b := newTestBundle(t, src)
-	args := map[string]fluent.Value{"arg": customValue{}}
+	args := map[string]any{"arg": customValue{}}
 
-	var errs []error
-	msg, _ := b.GetMessage("foo")
-	assert.Equal(t, "CUSTOM", b.FormatPattern(msg.Value, args, &errs), "interpolation")
+	got, errs := format(t, b, "foo", args)
+	assert.Equal(t, "CUSTOM", got, "interpolation")
+	assert.Empty(t, errs)
 
-	msg, _ = b.GetMessage("bar")
-	assert.Equal(t, "CUSTOM", b.FormatPattern(msg.Value, args, &errs), "nested")
-
+	got, errs = format(t, b, "bar", args)
+	assert.Equal(t, "CUSTOM", got, "nested")
 	assert.Empty(t, errs)
 }

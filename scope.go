@@ -1,51 +1,48 @@
 package fluent
 
-// Scope stores the data required for a single pattern resolution and for error
-// recovery. A new Scope is created per FormatPattern call on a complex pattern.
+// Scope carries the state of a single pattern resolution: the bundle, the
+// caller's arguments, and the errors collected so far. Library users only
+// meet it as the argument to Value.Format; its only public surface is Locale.
 type Scope struct {
 	// bundle is the bundle for which resolution is happening.
 	bundle *Bundle
-	// errors is the list of errors collected while resolving. If nil, the
-	// resolver throws (panics) on the first error instead of collecting.
-	errors *[]error
+	// errs collects the errors encountered while resolving.
+	errs []error
 	// args is the dict of developer-provided variables.
 	args map[string]Value
-	// dirty is the set of complex patterns already encountered during this
-	// resolution. Used to detect and prevent cyclic resolutions. Keyed by the
-	// pointer identity of the underlying ComplexPattern's backing array (the
-	// address of its first element), which is stable for a given parsed pattern.
-	dirty map[*PatternElement]bool
-	// params is the dict of parameters passed to a TermReference (or nil when
-	// not inside a term).
+	// dirty is the set of complex patterns already entered during this
+	// resolution, used to detect cyclic references. Keyed by the address of
+	// the pattern's first element, which is stable for a given parsed pattern.
+	dirty map[*patternElement]bool
+	// params is the dict of parameters passed to a termReference (nil when not
+	// inside a term).
 	params    map[string]Value
 	paramsSet bool
-	// placeables is the running count of placeables resolved so far. Used to
-	// detect the Billion Laughs and Quadratic Blowup attacks.
+	// placeables counts placeables resolved so far, to stop the Billion
+	// Laughs and Quadratic Blowup attacks.
 	placeables int
 }
 
-// newScope creates a Scope for the given bundle, error sink, and args.
-func newScope(bundle *Bundle, errors *[]error, args map[string]Value) *Scope {
+// Locale returns the locale of the bundle this resolution formats for. It is
+// the locale custom Value implementations should render with.
+func (s *Scope) Locale() string { return s.bundle.locale }
+
+// newScope creates a Scope for the given bundle and args.
+func newScope(bundle *Bundle, args map[string]Value) *Scope {
 	return &Scope{
 		bundle: bundle,
-		errors: errors,
 		args:   args,
-		dirty:  make(map[*PatternElement]bool),
+		dirty:  make(map[*patternElement]bool),
 	}
 }
 
-// reportError records an error. If the scope has no error sink, the error is
-// "thrown" by panicking with a fluentPanic, mirroring fluent.js where an
-// absent errors array causes reportError to rethrow.
+// reportError records a non-fatal resolution error.
 func (s *Scope) reportError(err error) {
-	if s.errors == nil {
-		panic(fluentPanic{err})
-	}
-	*s.errors = append(*s.errors, err)
+	s.errs = append(s.errs, err)
 }
 
-// fluentPanic wraps an error that is "thrown" out of resolution when no error
-// sink is provided. It is recovered at the FormatPattern boundary.
+// fluentPanic aborts a resolution that must not continue (the placeable
+// limit). It is recovered at the FormatPattern boundary.
 type fluentPanic struct {
 	err error
 }

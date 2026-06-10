@@ -73,7 +73,7 @@ func NewFromLocales(
 	defaultLocale string,
 	resourceIDs []string,
 	loader ResourceLoader,
-	bundleOpts ...fluent.BundleOption,
+	bundleOpts ...fluent.Option,
 ) (*Localization, []error) {
 	return NewFromLocalesStrategy(requested, available, defaultLocale, langneg.Filtering, resourceIDs, loader, bundleOpts...)
 }
@@ -86,7 +86,7 @@ func NewFromLocalesStrategy(
 	strategy langneg.Strategy,
 	resourceIDs []string,
 	loader ResourceLoader,
-	bundleOpts ...fluent.BundleOption,
+	bundleOpts ...fluent.Option,
 ) (*Localization, []error) {
 	var errs []error
 
@@ -104,13 +104,7 @@ func NewFromLocalesStrategy(
 				errs = append(errs, fmt.Errorf("localization: loading %q for %q: %w", resID, locale, loadErr))
 				continue
 			}
-			res, parseErrs := fluent.NewResource(source)
-			for _, pe := range parseErrs {
-				errs = append(errs, fmt.Errorf("localization: parsing %q for %q: %w", resID, locale, pe))
-			}
-			if res == nil {
-				continue
-			}
+			res := fluent.NewResource(source)
 			for _, ae := range bundle.AddResource(res) {
 				errs = append(errs, fmt.Errorf("localization: adding %q to %q: %w", resID, locale, ae))
 			}
@@ -143,7 +137,7 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, []er
 	msgID, attr := splitID(id)
 
 	for _, bundle := range l.bundles {
-		msg, ok := bundle.GetMessage(msgID)
+		msg, ok := bundle.Message(msgID)
 		if !ok {
 			continue
 		}
@@ -154,9 +148,7 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, []er
 			if msg.Value == nil {
 				continue
 			}
-			var errs []error
-			out := bundle.FormatPatternAny(msg.Value, args, &errs)
-			return out, errs
+			return bundle.FormatPattern(msg.Value, args)
 		}
 
 		pattern, has := msg.Attributes[attr]
@@ -165,9 +157,7 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, []er
 			// to the next bundle (fluent.js missing-attribute fallback).
 			continue
 		}
-		var errs []error
-		out := bundle.FormatPatternAny(pattern, args, &errs)
-		return out, errs
+		return bundle.FormatPattern(pattern, args)
 	}
 
 	return id, []error{&NotFoundError{ID: id}}
@@ -194,18 +184,22 @@ func (l *Localization) FormatValues(ids []L10nID) ([]string, []error) {
 // messageFromBundle layered over formatWithFallback.
 func (l *Localization) FormatMessage(id string, args map[string]any) (value string, attributes map[string]string, found bool, errs []error) {
 	for _, bundle := range l.bundles {
-		msg, ok := bundle.GetMessage(id)
+		msg, ok := bundle.Message(id)
 		if !ok {
 			continue
 		}
 
 		if msg.Value != nil {
-			value = bundle.FormatPatternAny(msg.Value, args, &errs)
+			var ferrs []error
+			value, ferrs = bundle.FormatPattern(msg.Value, args)
+			errs = append(errs, ferrs...)
 		}
 		if len(msg.Attributes) > 0 {
 			attributes = make(map[string]string, len(msg.Attributes))
 			for name, pattern := range msg.Attributes {
-				attributes[name] = bundle.FormatPatternAny(pattern, args, &errs)
+				out, ferrs := bundle.FormatPattern(pattern, args)
+				attributes[name] = out
+				errs = append(errs, ferrs...)
 			}
 		}
 		return value, attributes, true, errs

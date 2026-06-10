@@ -40,10 +40,10 @@ var (
 	reMessageScan = regexp.MustCompile(`(?m)^(-?[a-zA-Z][\w-]*) *= *`)
 )
 
-// Resource is a structure storing parsed localization entries. Body holds
-// *Message and *Term values, mirroring FluentResource.body in fluent.js.
+// Resource is a parsed set of FTL entries, ready to be added to a Bundle with
+// AddResource. It mirrors FluentResource in fluent.js.
 type Resource struct {
-	Body []any
+	entries []entry
 }
 
 // syntaxError is the bail-out signal for ill-formed messages, recovered per
@@ -64,12 +64,11 @@ type parser struct {
 	cursor int
 }
 
-// NewResource parses an FTL source into a Resource. Parse errors for individual
-// messages are recovered (the message is skipped); the returned error slice is
-// currently always nil-or-empty since the runtime parser silently skips broken
-// entries, matching fluent.js. The signature returns it for API symmetry.
-func NewResource(source string) (*Resource, []error) {
-	res := &Resource{Body: []any{}}
+// NewResource parses an FTL source into a Resource. The runtime parser is
+// fault-tolerant, matching fluent.js: entries that fail to parse are silently
+// skipped. Use the syntax package to diagnose malformed sources.
+func NewResource(source string) *Resource {
+	res := &Resource{}
 
 	// Iterate over the beginnings of messages and terms to efficiently skip
 	// comments and recover from errors. Emulate (?<!\r) by rejecting matches
@@ -85,18 +84,14 @@ func NewResource(source string) (*Resource, []error) {
 		}
 		id := source[idStart:idEnd]
 		p := &parser{source: source, cursor: loc[1]}
-		entry, err := p.parseMessage(id)
+		e, err := p.parseMessage(id)
 		if err != nil {
-			// Don't report Fluent syntax errors; skip to the next message.
-			if _, ok := err.(*syntaxError); ok {
-				continue
-			}
-			return res, []error{err}
+			continue
 		}
-		res.Body = append(res.Body, entry)
+		res.entries = append(res.entries, e)
 	}
 
-	return res, nil
+	return res
 }
 
 // --- low-level cursor primitives -------------------------------------------
@@ -216,7 +211,7 @@ func (p *parser) scanStringRun() string {
 
 // --- grammar ---------------------------------------------------------------
 
-func (p *parser) parseMessage(id string) (any, error) {
+func (p *parser) parseMessage(id string) (entry, error) {
 	value, err := p.parsePattern()
 	if err != nil {
 		return nil, err
@@ -231,7 +226,7 @@ func (p *parser) parseMessage(id string) (any, error) {
 	}
 
 	if strings.HasPrefix(id, "-") {
-		return &Term{ID: id, Value: value, Attributes: attributes}, nil
+		return &term{id: id, value: value, attributes: attributes}, nil
 	}
 	return &Message{ID: id, Value: value, Attributes: attributes}, nil
 }
@@ -305,7 +300,7 @@ func (p *parser) parsePattern() (Pattern, error) {
 	}
 
 	if hasFirst {
-		return reTrailingSpaces.ReplaceAllString(first, ""), nil
+		return textPattern(reTrailingSpaces.ReplaceAllString(first, "")), nil
 	}
 
 	return nil, nil
@@ -313,7 +308,7 @@ func (p *parser) parsePattern() (Pattern, error) {
 
 // parsePatternElements parses a complex pattern as a slice of elements.
 // elements may contain string and indent values.
-func (p *parser) parsePatternElements(elements []any, commonIndent int) (ComplexPattern, error) {
+func (p *parser) parsePatternElements(elements []any, commonIndent int) (complexPattern, error) {
 	for {
 		if t, ok := p.scanTextRun(); ok {
 			elements = append(elements, t)
@@ -352,7 +347,7 @@ func (p *parser) parsePatternElements(elements []any, commonIndent int) (Complex
 		}
 	}
 
-	baked := ComplexPattern{}
+	baked := complexPattern{}
 	for _, element := range elements {
 		if ind, ok := element.(indent); ok {
 			// Dedent indented lines by the maximum common indent.
@@ -362,20 +357,19 @@ func (p *parser) parsePatternElements(elements []any, commonIndent int) (Complex
 			}
 			element = s
 		}
-		if str, ok := element.(string); ok {
-			if str == "" {
-				continue
+		switch e := element.(type) {
+		case string:
+			if e != "" {
+				baked = append(baked, textElement(e))
 			}
-			baked = append(baked, str)
-			continue
+		case expression:
+			baked = append(baked, e)
 		}
-		// Non-string element (an Expression): always keep.
-		baked = append(baked, element)
 	}
 	return baked, nil
 }
 
-func (p *parser) parsePlaceable() (Expression, error) {
+func (p *parser) parsePlaceable() (expression, error) {
 	if _, err := p.consumeToken(tokenBraceOpen, true); err != nil {
 		return nil, err
 	}
@@ -397,13 +391,13 @@ func (p *parser) parsePlaceable() (Expression, error) {
 		if _, err := p.consumeToken(tokenBraceClose, true); err != nil {
 			return nil, err
 		}
-		return &SelectExpression{Selector: selector, Variants: variants, Star: star}, nil
+		return &selectExpression{selector: selector, variants: variants, star: star}, nil
 	}
 
 	return nil, &syntaxError{msg: "Unclosed placeable"}
 }
 
-func (p *parser) parseInlineExpression() (Expression, error) {
+func (p *parser) parseInlineExpression() (expression, error) {
 	if p.charAt(p.cursor) == '{' {
 		return p.parsePlaceable()
 	}
@@ -418,7 +412,7 @@ func (p *parser) parseInlineExpression() (Expression, error) {
 		attr := g[3] // "" if absent
 
 		if sigil == "$" {
-			return &VariableReference{Name: name}, nil
+			return &variableReference{name: name}, nil
 		}
 
 		if ok, _ := p.consumeToken(tokenParenOpen, false); ok {
@@ -428,28 +422,28 @@ func (p *parser) parseInlineExpression() (Expression, error) {
 			}
 
 			if sigil == "-" {
-				return &TermReference{Name: name, Attr: attr, Args: args}, nil
+				return &termReference{name: name, attr: attr, args: args}, nil
 			}
 
 			if reFunctionName.MatchString(name) {
-				return &FunctionReference{Name: name, Args: args}, nil
+				return &functionReference{name: name, args: args}, nil
 			}
 
 			return nil, &syntaxError{msg: "Function names must be all upper-case"}
 		}
 
 		if sigil == "-" {
-			return &TermReference{Name: name, Attr: attr, Args: []any{}}, nil
+			return &termReference{name: name, attr: attr}, nil
 		}
 
-		return &MessageReference{Name: name, Attr: attr}, nil
+		return &messageReference{name: name, attr: attr}, nil
 	}
 
 	return p.parseLiteral()
 }
 
-func (p *parser) parseArguments() ([]any, error) {
-	args := []any{}
+func (p *parser) parseArguments() (callArguments, error) {
+	var args callArguments
 	for {
 		switch p.charAt(p.cursor) {
 		case ')':
@@ -457,44 +451,41 @@ func (p *parser) parseArguments() ([]any, error) {
 			return args, nil
 		case 0:
 			if p.cursor >= len(p.source) {
-				return nil, &syntaxError{msg: "Unclosed argument list"}
+				return callArguments{}, &syntaxError{msg: "Unclosed argument list"}
 			}
 		}
 
-		arg, err := p.parseArgument()
-		if err != nil {
-			return nil, err
+		if err := p.parseArgument(&args); err != nil {
+			return callArguments{}, err
 		}
-		args = append(args, arg)
 		// Commas between arguments are treated as whitespace.
 		p.consumeToken(tokenComma, false)
 	}
 }
 
-func (p *parser) parseArgument() (any, error) {
+func (p *parser) parseArgument(args *callArguments) error {
 	expr, err := p.parseInlineExpression()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	mesg, ok := expr.(*MessageReference)
-	if !ok {
-		return expr, nil
-	}
-
-	if ok, _ := p.consumeToken(tokenColon, false); ok {
-		val, err := p.parseLiteral()
-		if err != nil {
-			return nil, err
+	if mesg, ok := expr.(*messageReference); ok {
+		if ok, _ := p.consumeToken(tokenColon, false); ok {
+			val, err := p.parseLiteral()
+			if err != nil {
+				return err
+			}
+			args.named = append(args.named, namedArgument{name: mesg.name, value: val})
+			return nil
 		}
-		return &NamedArgument{Name: mesg.Name, Value: val}, nil
 	}
 
-	return expr, nil
+	args.positional = append(args.positional, expr)
+	return nil
 }
 
-func (p *parser) parseVariants() ([]Variant, int, error) {
-	var variants []Variant
+func (p *parser) parseVariants() ([]variant, int, error) {
+	var variants []variant
 	count := 0
 	star := -1
 
@@ -514,7 +505,7 @@ func (p *parser) parseVariants() ([]Variant, int, error) {
 		if value == nil {
 			return nil, -1, &syntaxError{msg: "Expected variant value"}
 		}
-		variants = append(variants, Variant{Key: key, Value: value})
+		variants = append(variants, variant{key: key, value: value})
 		count++
 	}
 
@@ -529,12 +520,12 @@ func (p *parser) parseVariants() ([]Variant, int, error) {
 	return variants, star, nil
 }
 
-func (p *parser) parseVariantKey() (Literal, error) {
+func (p *parser) parseVariantKey() (literal, error) {
 	if _, err := p.consumeToken(tokenBracketOpen, true); err != nil {
 		return nil, err
 	}
 
-	var key Literal
+	var key literal
 	if p.test(reNumberLiteral) {
 		k, err := p.parseNumberLiteral()
 		if err != nil {
@@ -546,7 +537,7 @@ func (p *parser) parseVariantKey() (Literal, error) {
 		if err != nil {
 			return nil, err
 		}
-		key = &StringLiteral{Value: id}
+		key = &stringLiteral{value: id}
 	}
 
 	if _, err := p.consumeToken(tokenBracketClose, true); err != nil {
@@ -555,7 +546,7 @@ func (p *parser) parseVariantKey() (Literal, error) {
 	return key, nil
 }
 
-func (p *parser) parseLiteral() (Literal, error) {
+func (p *parser) parseLiteral() (literal, error) {
 	if p.test(reNumberLiteral) {
 		return p.parseNumberLiteral()
 	}
@@ -567,7 +558,7 @@ func (p *parser) parseLiteral() (Literal, error) {
 	return nil, &syntaxError{msg: "Invalid expression"}
 }
 
-func (p *parser) parseNumberLiteral() (*NumberLiteral, error) {
+func (p *parser) parseNumberLiteral() (*numberLiteral, error) {
 	g, err := p.match(reNumberLiteral)
 	if err != nil {
 		return nil, err
@@ -577,10 +568,10 @@ func (p *parser) parseNumberLiteral() (*NumberLiteral, error) {
 		return nil, &syntaxError{msg: "Invalid number"}
 	}
 	precision := len(g[2])
-	return &NumberLiteral{Value: value, Precision: precision}, nil
+	return &numberLiteral{value: value, precision: precision}, nil
 }
 
-func (p *parser) parseStringLiteral() (*StringLiteral, error) {
+func (p *parser) parseStringLiteral() (*stringLiteral, error) {
 	if _, err := p.consumeChar('"', true); err != nil {
 		return nil, err
 	}
@@ -598,7 +589,7 @@ func (p *parser) parseStringLiteral() (*StringLiteral, error) {
 		}
 
 		if ok, _ := p.consumeChar('"', false); ok {
-			return &StringLiteral{Value: sb.String()}, nil
+			return &stringLiteral{value: sb.String()}, nil
 		}
 
 		return nil, &syntaxError{msg: "Unclosed string literal"}

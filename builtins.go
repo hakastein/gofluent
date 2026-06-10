@@ -7,21 +7,21 @@ import (
 	"time"
 )
 
-// optString unwraps a named option Value to its string form. A FluentString is
+// optString unwraps a named option Value to its string form. A String is
 // returned verbatim; a Number renders its plain value. Anything else yields
 // ("", false). Mirrors opt.valueOf() in fluent.js.
 func optString(v Value) (string, bool) {
 	switch t := v.(type) {
-	case FluentString:
+	case String:
 		return string(t), true
 	case *Number:
-		return strconv.FormatFloat(t.value, 'f', -1, 64), true
+		return strconv.FormatFloat(t.Value, 'f', -1, 64), true
 	}
 	return "", false
 }
 
 // optInt unwraps a named option Value to an int. A Number yields its integer
-// value; a numeric FluentString is parsed. Non-numeric strings yield a
+// value; a numeric String is parsed. Non-numeric strings yield a
 // RangeError-equivalent (ok == false) so the builtin can mirror Intl's behavior
 // of throwing on an invalid option value.
 func optInt(v Value) (int, bool) {
@@ -30,11 +30,11 @@ func optInt(v Value) (int, bool) {
 		// Only an integral value is a valid integer option. A fractional value
 		// (e.g. 2.9) is out of spec and must fail the same way the string "2.9"
 		// does, rather than being silently truncated.
-		if t.value != math.Trunc(t.value) {
+		if t.Value != math.Trunc(t.Value) {
 			return 0, false
 		}
-		return int(t.value), true
-	case FluentString:
+		return int(t.Value), true
+	case String:
 		if n, err := strconv.Atoi(strings.TrimSpace(string(t))); err == nil {
 			return n, true
 		}
@@ -45,7 +45,7 @@ func optInt(v Value) (int, bool) {
 // optBool unwraps a named option Value to a bool.
 func optBool(v Value) (bool, bool) {
 	switch t := v.(type) {
-	case FluentString:
+	case String:
 		switch string(t) {
 		case "true":
 			return true, true
@@ -53,7 +53,7 @@ func optBool(v Value) (bool, bool) {
 			return false, true
 		}
 	case *Number:
-		return t.value != 0, true
+		return t.Value != 0, true
 	}
 	return false, false
 }
@@ -189,10 +189,10 @@ func builtinNUMBER(args []Value, opts map[string]Value) (Value, error) {
 
 	switch a := arg.(type) {
 	case *None:
-		return NewNone("NUMBER(" + a.value + ")"), nil
+		return NewNone("NUMBER(" + a.fallback + ")"), nil
 	case *Number:
-		merged, optErr := numberOptionsFrom(a.opts, opts)
-		n := NewNumber(a.value, merged)
+		merged, optErr := numberOptionsFrom(a.Options, opts)
+		n := NewNumber(a.Value, merged)
 		n.optErr = optErr
 		return n, nil
 	case *DateTime:
@@ -219,13 +219,13 @@ func builtinDATETIME(args []Value, opts map[string]Value) (Value, error) {
 
 	switch a := arg.(type) {
 	case *None:
-		return NewNone("DATETIME(" + a.value + ")"), nil
+		return NewNone("DATETIME(" + a.fallback + ")"), nil
 	case *DateTime:
-		merged := dateTimeOptionsFrom(a.opts, opts)
-		return NewDateTime(a.value, merged), nil
+		merged := dateTimeOptionsFrom(a.Options, opts)
+		return NewDateTime(a.Time, merged), nil
 	case *Number:
 		merged := dateTimeOptionsFrom(DateTimeOptions{}, opts)
-		return NewDateTime(millisToTime(a.value), merged), nil
+		return NewDateTime(millisToTime(a.Value), merged), nil
 	}
 
 	return nil, newTypeError("Invalid argument to DATETIME")
