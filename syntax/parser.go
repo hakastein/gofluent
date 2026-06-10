@@ -11,26 +11,26 @@ var trailingWSRe = regexp.MustCompile(`[ \n\r]+$`)
 
 var functionNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_-]*$`)
 
-// FluentParser is a recursive-descent parser for Fluent, a faithful port of
-// parser.ts. Construct one with NewFluentParser, or use the package-level
-// Parse / ParseEntry helpers.
-type FluentParser struct {
+// Parser is a recursive-descent parser for Fluent, a faithful port of the
+// @fluent/syntax FluentParser. Construct one with NewParser, or use the
+// package-level Parse / ParseEntry helpers.
+type Parser struct {
 	withSpans bool
 }
 
-// Option configures a FluentParser.
-type Option func(*FluentParser)
+// Option configures a Parser.
+type Option func(*Parser)
 
 // WithSpans enables or disables span recording. The default is true, matching
-// FluentParser's default in @fluent/syntax.
+// @fluent/syntax.
 func WithSpans(enabled bool) Option {
-	return func(p *FluentParser) { p.withSpans = enabled }
+	return func(p *Parser) { p.withSpans = enabled }
 }
 
-// NewFluentParser builds a parser with the given options. Spans are enabled by
+// NewParser builds a parser with the given options. Spans are enabled by
 // default.
-func NewFluentParser(opts ...Option) *FluentParser {
-	p := &FluentParser{withSpans: true}
+func NewParser(opts ...Option) *Parser {
+	p := &Parser{withSpans: true}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -39,7 +39,7 @@ func NewFluentParser(opts ...Option) *FluentParser {
 
 // addSpan records a span on a node unless one is already present or spans are
 // disabled.
-func (p *FluentParser) addSpan(node ast.SyntaxNode, start, end int) {
+func (p *Parser) addSpan(node ast.SyntaxNode, start, end int) {
 	if !p.withSpans {
 		return
 	}
@@ -51,7 +51,7 @@ func (p *FluentParser) addSpan(node ast.SyntaxNode, start, end int) {
 
 // Parse performs a full parse with junk recovery. It never returns an error;
 // invalid entries become Junk carrying Annotations.
-func (p *FluentParser) Parse(source string) *ast.Resource {
+func (p *Parser) Parse(source string) *ast.Resource {
 	ps := newParserStream(source)
 	ps.skipBlankBlock()
 
@@ -98,8 +98,8 @@ func (p *FluentParser) Parse(source string) *ast.Resource {
 }
 
 // ParseEntry parses the first Message or Term in source, skipping preceding
-// comments. Unparseable input yields (ast.Junk, nil).
-func (p *FluentParser) ParseEntry(source string) (ast.Entry, error) {
+// comments. Unparseable input yields ast.Junk.
+func (p *Parser) ParseEntry(source string) ast.Entry {
 	ps := newParserStream(source)
 	ps.skipBlankBlock()
 
@@ -107,15 +107,15 @@ func (p *FluentParser) ParseEntry(source string) (ast.Entry, error) {
 		skipped := p.getEntryOrJunk(ps)
 		if _, ok := skipped.(*ast.Junk); ok {
 			// Don't skip Junk comments.
-			return skipped, nil
+			return skipped
 		}
 		ps.skipBlankBlock()
 	}
 
-	return p.getEntryOrJunk(ps), nil
+	return p.getEntryOrJunk(ps)
 }
 
-func (p *FluentParser) getEntryOrJunk(ps *parserStream) ast.Entry {
+func (p *Parser) getEntryOrJunk(ps *parserStream) ast.Entry {
 	entryStartPos := ps.index
 
 	entry, err := p.getEntry(ps)
@@ -149,14 +149,14 @@ func (p *FluentParser) getEntryOrJunk(ps *parserStream) ast.Entry {
 	return junk
 }
 
-func (p *FluentParser) getEntry(ps *parserStream) (ast.Entry, error) {
+func (p *Parser) getEntry(ps *parserStream) (ast.Entry, error) {
 	start := ps.index
 	var entry ast.Entry
 	var err error
 
 	switch {
 	case ps.currentChar() == '#':
-		var c ast.Comments
+		var c ast.BaseComment
 		c, err = p.getComment(ps)
 		entry = c
 	case ps.currentChar() == '-':
@@ -178,7 +178,7 @@ func (p *FluentParser) getEntry(ps *parserStream) (ast.Entry, error) {
 	return entry, nil
 }
 
-func (p *FluentParser) getComment(ps *parserStream) (ast.Comments, error) {
+func (p *Parser) getComment(ps *parserStream) (ast.BaseComment, error) {
 	start := ps.index
 	// 0 - comment, 1 - group comment, 2 - resource comment
 	level := -1
@@ -220,7 +220,7 @@ func (p *FluentParser) getComment(ps *parserStream) (ast.Comments, error) {
 		}
 	}
 
-	var comment ast.Comments
+	var comment ast.BaseComment
 	switch level {
 	case 0:
 		comment = &ast.Comment{Content: content.String()}
@@ -233,7 +233,7 @@ func (p *FluentParser) getComment(ps *parserStream) (ast.Comments, error) {
 	return comment, nil
 }
 
-func (p *FluentParser) getMessage(ps *parserStream) (*ast.Message, error) {
+func (p *Parser) getMessage(ps *parserStream) (*ast.Message, error) {
 	start := ps.index
 	id, err := p.getIdentifier(ps)
 	if err != nil {
@@ -263,7 +263,7 @@ func (p *FluentParser) getMessage(ps *parserStream) (*ast.Message, error) {
 	return msg, nil
 }
 
-func (p *FluentParser) getTerm(ps *parserStream) (*ast.Term, error) {
+func (p *Parser) getTerm(ps *parserStream) (*ast.Term, error) {
 	start := ps.index
 	if err := ps.expectChar('-'); err != nil {
 		return nil, err
@@ -296,7 +296,7 @@ func (p *FluentParser) getTerm(ps *parserStream) (*ast.Term, error) {
 	return term, nil
 }
 
-func (p *FluentParser) getAttribute(ps *parserStream) (*ast.Attribute, error) {
+func (p *Parser) getAttribute(ps *parserStream) (*ast.Attribute, error) {
 	start := ps.index
 	if err := ps.expectChar('.'); err != nil {
 		return nil, err
@@ -325,7 +325,7 @@ func (p *FluentParser) getAttribute(ps *parserStream) (*ast.Attribute, error) {
 	return attr, nil
 }
 
-func (p *FluentParser) getAttributes(ps *parserStream) ([]*ast.Attribute, error) {
+func (p *Parser) getAttributes(ps *parserStream) ([]*ast.Attribute, error) {
 	var attrs []*ast.Attribute
 	ps.peekBlank()
 	for ps.isAttributeStart() {
@@ -340,7 +340,7 @@ func (p *FluentParser) getAttributes(ps *parserStream) ([]*ast.Attribute, error)
 	return attrs, nil
 }
 
-func (p *FluentParser) getIdentifier(ps *parserStream) (*ast.Identifier, error) {
+func (p *Parser) getIdentifier(ps *parserStream) (*ast.Identifier, error) {
 	start := ps.index
 	first, err := ps.takeIDStart()
 	if err != nil {
@@ -360,7 +360,7 @@ func (p *FluentParser) getIdentifier(ps *parserStream) (*ast.Identifier, error) 
 	return id, nil
 }
 
-func (p *FluentParser) getVariantKey(ps *parserStream) (ast.VariantKey, error) {
+func (p *Parser) getVariantKey(ps *parserStream) (ast.VariantKey, error) {
 	ch := ps.currentChar()
 	if ch == eof {
 		return nil, newParseError("E0013")
@@ -371,7 +371,7 @@ func (p *FluentParser) getVariantKey(ps *parserStream) (ast.VariantKey, error) {
 	return p.getIdentifier(ps)
 }
 
-func (p *FluentParser) getVariant(ps *parserStream, hasDefault bool) (*ast.Variant, error) {
+func (p *Parser) getVariant(ps *parserStream, hasDefault bool) (*ast.Variant, error) {
 	start := ps.index
 	defaultIndex := false
 
@@ -412,7 +412,7 @@ func (p *FluentParser) getVariant(ps *parserStream, hasDefault bool) (*ast.Varia
 	return variant, nil
 }
 
-func (p *FluentParser) getVariants(ps *parserStream) ([]*ast.Variant, error) {
+func (p *Parser) getVariants(ps *parserStream) ([]*ast.Variant, error) {
 	var variants []*ast.Variant
 	hasDefault := false
 
@@ -441,7 +441,7 @@ func (p *FluentParser) getVariants(ps *parserStream) ([]*ast.Variant, error) {
 	return variants, nil
 }
 
-func (p *FluentParser) getDigits(ps *parserStream) (string, error) {
+func (p *Parser) getDigits(ps *parserStream) (string, error) {
 	var num strings.Builder
 	for {
 		ch, ok := ps.takeDigit()
@@ -456,7 +456,7 @@ func (p *FluentParser) getDigits(ps *parserStream) (string, error) {
 	return num.String(), nil
 }
 
-func (p *FluentParser) getNumber(ps *parserStream) (*ast.NumberLiteral, error) {
+func (p *Parser) getNumber(ps *parserStream) (*ast.NumberLiteral, error) {
 	start := ps.index
 	var value strings.Builder
 
@@ -493,7 +493,7 @@ func (p *FluentParser) getNumber(ps *parserStream) (*ast.NumberLiteral, error) {
 
 // maybeGetPattern distinguishes patterns starting on the identifier line from
 // block patterns starting on a new line; the distinction drives dedentation.
-func (p *FluentParser) maybeGetPattern(ps *parserStream) (*ast.Pattern, error) {
+func (p *Parser) maybeGetPattern(ps *parserStream) (*ast.Pattern, error) {
 	ps.peekBlankInline()
 	if ps.isValueStart() {
 		ps.skipToPeek()
@@ -516,7 +516,7 @@ type indent struct {
 	span  *ast.Span
 }
 
-func (p *FluentParser) getPattern(ps *parserStream, isBlock bool) (*ast.Pattern, error) {
+func (p *Parser) getPattern(ps *parserStream, isBlock bool) (*ast.Pattern, error) {
 	start := ps.index
 	// elements holds *ast.TextElement, *ast.Placeable, or *indent.
 	var elements []any
@@ -574,13 +574,13 @@ done:
 	return pat, nil
 }
 
-func (p *FluentParser) getIndent(ps *parserStream, value string, start int) *indent {
+func (p *Parser) getIndent(ps *parserStream, value string, start int) *indent {
 	return &indent{value: value, span: &ast.Span{Start: start, End: ps.index}}
 }
 
 // dedent strips the common indent from text lines and merges adjacent text
-// elements, mirroring FluentParser.dedent.
-func (p *FluentParser) dedent(elements []any, commonIndent int) []ast.PatternElement {
+// elements, mirroring the reference FluentParser.dedent.
+func (p *Parser) dedent(elements []any, commonIndent int) []ast.PatternElement {
 	var trimmed []ast.PatternElement
 
 	for _, element := range elements {
@@ -654,7 +654,7 @@ func (p *FluentParser) dedent(elements []any, commonIndent int) []ast.PatternEle
 	return trimmed
 }
 
-func (p *FluentParser) getTextElement(ps *parserStream) (*ast.TextElement, error) {
+func (p *Parser) getTextElement(ps *parserStream) (*ast.TextElement, error) {
 	start := ps.index
 
 	for ps.currentChar() != eof {
@@ -670,7 +670,7 @@ func (p *FluentParser) getTextElement(ps *parserStream) (*ast.TextElement, error
 	return te, nil
 }
 
-func (p *FluentParser) getEscapeSequence(ps *parserStream) (string, error) {
+func (p *Parser) getEscapeSequence(ps *parserStream) (string, error) {
 	next := ps.currentChar()
 	switch next {
 	case '\\', '"':
@@ -685,7 +685,7 @@ func (p *FluentParser) getEscapeSequence(ps *parserStream) (string, error) {
 	}
 }
 
-func (p *FluentParser) getUnicodeEscapeSequence(ps *parserStream, u rune, digits int) (string, error) {
+func (p *Parser) getUnicodeEscapeSequence(ps *parserStream, u rune, digits int) (string, error) {
 	if err := ps.expectChar(u); err != nil {
 		return "", err
 	}
@@ -711,7 +711,7 @@ func (p *FluentParser) getUnicodeEscapeSequence(ps *parserStream, u rune, digits
 	return "\\" + string(u) + sequence.String(), nil
 }
 
-func (p *FluentParser) getPlaceable(ps *parserStream) (*ast.Placeable, error) {
+func (p *Parser) getPlaceable(ps *parserStream) (*ast.Placeable, error) {
 	start := ps.index
 	if err := ps.expectChar('{'); err != nil {
 		return nil, err
@@ -731,7 +731,7 @@ func (p *FluentParser) getPlaceable(ps *parserStream) (*ast.Placeable, error) {
 
 // getExpression returns an Expression. The result may be a Placeable when the
 // inline expression is itself a placeable that is not a select.
-func (p *FluentParser) getExpression(ps *parserStream) (ast.Expression, error) {
+func (p *Parser) getExpression(ps *parserStream) (ast.Expression, error) {
 	start := ps.index
 	selector, err := p.getInlineExpression(ps)
 	if err != nil {
@@ -786,7 +786,7 @@ func (p *FluentParser) getExpression(ps *parserStream) (ast.Expression, error) {
 
 // getInlineExpression returns an InlineExpression. A Placeable also satisfies
 // InlineExpression in this model.
-func (p *FluentParser) getInlineExpression(ps *parserStream) (ast.InlineExpression, error) {
+func (p *Parser) getInlineExpression(ps *parserStream) (ast.InlineExpression, error) {
 	start := ps.index
 
 	if ps.currentChar() == '{' {
@@ -887,7 +887,7 @@ type callArgumentResult struct {
 	named  *ast.NamedArgument
 }
 
-func (p *FluentParser) getCallArgument(ps *parserStream) (callArgumentResult, error) {
+func (p *Parser) getCallArgument(ps *parserStream) (callArgumentResult, error) {
 	start := ps.index
 	exp, err := p.getInlineExpression(ps)
 	if err != nil {
@@ -916,7 +916,7 @@ func (p *FluentParser) getCallArgument(ps *parserStream) (callArgumentResult, er
 	return callArgumentResult{}, newParseError("E0009")
 }
 
-func (p *FluentParser) getCallArguments(ps *parserStream) (*ast.CallArguments, error) {
+func (p *Parser) getCallArguments(ps *parserStream) (*ast.CallArguments, error) {
 	start := ps.index
 	var positional []ast.InlineExpression
 	var named []*ast.NamedArgument
@@ -966,7 +966,7 @@ func (p *FluentParser) getCallArguments(ps *parserStream) (*ast.CallArguments, e
 	return ca, nil
 }
 
-func (p *FluentParser) getString(ps *parserStream) (*ast.StringLiteral, error) {
+func (p *Parser) getString(ps *parserStream) (*ast.StringLiteral, error) {
 	start := ps.index
 	if err := ps.expectChar('"'); err != nil {
 		return nil, err
@@ -1005,7 +1005,7 @@ func (p *FluentParser) getString(ps *parserStream) (*ast.StringLiteral, error) {
 	return sl, nil
 }
 
-func (p *FluentParser) getLiteral(ps *parserStream) (ast.Literal, error) {
+func (p *Parser) getLiteral(ps *parserStream) (ast.Literal, error) {
 	if ps.isNumberStart() {
 		return p.getNumber(ps)
 	}

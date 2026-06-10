@@ -8,23 +8,23 @@ import (
 
 const hasEntries = 1
 
-// FluentSerializer renders an AST back to canonical Fluent source. It is a port
-// of FluentSerializer from serializer.ts.
-type FluentSerializer struct {
+// Serializer renders an AST back to canonical Fluent source. It is a port of
+// the @fluent/syntax FluentSerializer.
+type Serializer struct {
 	withJunk bool
 }
 
-// SerializerOption configures a FluentSerializer.
-type SerializerOption func(*FluentSerializer)
+// SerializerOption configures a Serializer.
+type SerializerOption func(*Serializer)
 
 // WithJunk includes Junk entries in the serialized output.
 func WithJunk(enabled bool) SerializerOption {
-	return func(s *FluentSerializer) { s.withJunk = enabled }
+	return func(s *Serializer) { s.withJunk = enabled }
 }
 
-// NewFluentSerializer builds a serializer. Junk is omitted by default.
-func NewFluentSerializer(opts ...SerializerOption) *FluentSerializer {
-	s := &FluentSerializer{}
+// NewSerializer builds a serializer. Junk is omitted by default.
+func NewSerializer(opts ...SerializerOption) *Serializer {
+	s := &Serializer{}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -32,7 +32,7 @@ func NewFluentSerializer(opts ...SerializerOption) *FluentSerializer {
 }
 
 // Serialize renders a whole resource.
-func (s *FluentSerializer) Serialize(resource *ast.Resource) string {
+func (s *Serializer) Serialize(resource *ast.Resource) string {
 	state := 0
 	var parts strings.Builder
 
@@ -47,7 +47,7 @@ func (s *FluentSerializer) Serialize(resource *ast.Resource) string {
 }
 
 // serializeEntry renders a single entry with the given state bits.
-func (s *FluentSerializer) serializeEntry(entry ast.Entry, state int) string {
+func (s *Serializer) serializeEntry(entry ast.Entry, state int) string {
 	switch e := entry.(type) {
 	case *ast.Message:
 		return serializeMessage(e)
@@ -210,14 +210,14 @@ func serializePlaceable(placeable *ast.Placeable) string {
 		return "{" + serializePlaceable(expr) + "}"
 	case *ast.SelectExpression:
 		// Control the whitespace around the braces for select expressions.
-		return "{ " + SerializeExpression(expr) + "}"
+		return "{ " + serializeExpression(expr) + "}"
 	default:
-		return "{ " + SerializeExpression(placeable.Expression) + " }"
+		return "{ " + serializeExpression(placeable.Expression) + " }"
 	}
 }
 
-// SerializeExpression renders a single expression to Fluent source.
-func SerializeExpression(expr ast.Expression) string {
+// serializeExpression renders a single expression to Fluent source.
+func serializeExpression(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.StringLiteral:
 		return "\"" + e.Value + "\""
@@ -243,7 +243,7 @@ func SerializeExpression(expr ast.Expression) string {
 	case *ast.FunctionReference:
 		return e.ID.Name + serializeCallArguments(e.Arguments)
 	case *ast.SelectExpression:
-		out := SerializeExpression(e.Selector) + " ->"
+		out := serializeExpression(e.Selector) + " ->"
 		for _, variant := range e.Variants {
 			out += serializeVariant(variant)
 		}
@@ -256,7 +256,7 @@ func SerializeExpression(expr ast.Expression) string {
 }
 
 func serializeVariant(variant *ast.Variant) string {
-	key := SerializeVariantKey(variant.Key)
+	key := serializeVariantKey(variant.Key)
 	value := indentExceptFirstLine(serializePattern(variant.Value))
 
 	if variant.Default {
@@ -268,7 +268,7 @@ func serializeVariant(variant *ast.Variant) string {
 func serializeCallArguments(expr *ast.CallArguments) string {
 	posParts := make([]string, len(expr.Positional))
 	for i, p := range expr.Positional {
-		posParts[i] = SerializeExpression(p)
+		posParts[i] = serializeExpression(p)
 	}
 	positional := strings.Join(posParts, ", ")
 
@@ -288,11 +288,11 @@ func serializeCallArguments(expr *ast.CallArguments) string {
 }
 
 func serializeNamedArgument(arg *ast.NamedArgument) string {
-	return arg.Name.Name + ": " + SerializeExpression(arg.Value)
+	return arg.Name.Name + ": " + serializeExpression(arg.Value)
 }
 
-// SerializeVariantKey renders a variant key (Identifier or NumberLiteral).
-func SerializeVariantKey(key ast.VariantKey) string {
+// serializeVariantKey renders a variant key (Identifier or NumberLiteral).
+func serializeVariantKey(key ast.VariantKey) string {
 	switch k := key.(type) {
 	case *ast.Identifier:
 		return k.Name

@@ -13,6 +13,6 @@ func Marshal(n Node, withSpans bool) ([]byte, error) {
 	return encodeNode(n, ctx)
 }
 
-// MarshalJSON implements json.Marshaler for Resource, including spans. Use
-// Marshal(node, false) to omit spans.
-func (r *Resource) MarshalJSON() ([]byte, error) { return Marshal(r, true) }
+// MarshalJSON implements json.Marshaler for Resource, omitting spans. Use
+// Marshal(node, true) to include them.
+func (r *Resource) MarshalJSON() ([]byte, error) { return Marshal(r, false) }

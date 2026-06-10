@@ -116,8 +116,7 @@ func TestJunkRecovery(t *testing.T) {
 }
 
 func TestParseEntry(t *testing.T) {
-	entry, err := syntax.ParseEntry("# comment\nfoo = Bar\n")
-	require.NoError(t, err)
+	entry := syntax.ParseEntry("# comment\nfoo = Bar\n")
 
 	msg, ok := entry.(*ast.Message)
 	require.True(t, ok, "expected *ast.Message, got %T", entry)

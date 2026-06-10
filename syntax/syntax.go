@@ -15,21 +15,19 @@ import (
 // error: invalid entries become ast.Junk carrying ast.Annotation diagnostics.
 // Spans are recorded by default; pass WithSpans(false) to disable them.
 func Parse(source string, opts ...Option) *ast.Resource {
-	return NewFluentParser(opts...).Parse(source)
+	return NewParser(opts...).Parse(source)
 }
 
 // ParseEntry parses the first Message or Term in source, skipping any preceding
-// comments. It returns ast.Junk (and a nil error) for unparseable input. The
-// error return mirrors the reference parseEntry signature and is reserved for
-// future use; it is always nil today.
-func ParseEntry(source string, opts ...Option) (ast.Entry, error) {
-	return NewFluentParser(opts...).ParseEntry(source)
+// comments. It returns ast.Junk for unparseable input.
+func ParseEntry(source string, opts ...Option) ast.Entry {
+	return NewParser(opts...).ParseEntry(source)
 }
 
 // Serialize renders a resource to canonical Fluent source. Junk is omitted
 // unless WithJunk(true) is supplied.
 func Serialize(resource *ast.Resource, opts ...SerializerOption) string {
-	return NewFluentSerializer(opts...).Serialize(resource)
+	return NewSerializer(opts...).Serialize(resource)
 }
 
 // LineOffset returns the zero-based line index of pos within source. pos is a

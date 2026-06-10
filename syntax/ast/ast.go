@@ -15,16 +15,17 @@ import (
 )
 
 // Node is the base interface implemented by every AST node, including Span and
-// Annotation. It corresponds to BaseNode/SyntaxNode in the reference.
+// Annotation. It corresponds to BaseNode in the reference. Node is a closed
+// interface: all implementations live in this package.
 type Node interface {
-	jsonMarshaler
 	// nodeTypeName returns the node's class name used as the JSON "type"
 	// discriminator.
 	nodeTypeName() string
 }
 
-// SyntaxNode is the interface for nodes which can carry a Span. Every node in
-// this package except via the Spanned embed satisfies it.
+// SyntaxNode is the interface for nodes which carry their own Span via the
+// Spanned embed. Every node in this package satisfies it except *Span and
+// *Annotation, which implement only Node.
 type SyntaxNode interface {
 	Node
 	GetSpan() *Span
@@ -70,8 +71,8 @@ type VariantKey interface {
 	isVariantKey()
 }
 
-// Comments is a Comment, GroupComment, or ResourceComment.
-type Comments interface {
+// BaseComment is a Comment, GroupComment, or ResourceComment.
+type BaseComment interface {
 	Entry
 	isComment()
 }
