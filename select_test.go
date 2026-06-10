@@ -111,3 +111,35 @@ func (otherOnlyPluralRules) Cardinal(_ string, _ float64, _ fluent.NumberOptions
 func (otherOnlyPluralRules) Ordinal(_ string, _ float64, _ fluent.NumberOptions) string {
 	return "other"
 }
+
+// splitPluralRules reports different constant categories for the cardinal and
+// ordinal rulesets, so a test can verify which one the resolver consulted.
+type splitPluralRules struct{}
+
+func (splitPluralRules) Cardinal(_ string, _ float64, _ fluent.NumberOptions) string {
+	return "other"
+}
+func (splitPluralRules) Ordinal(_ string, _ float64, _ fluent.NumberOptions) string {
+	return "one"
+}
+
+// TestWithPluralRulesOrdinalDispatch verifies that a Number argument carrying
+// NumberOptions.Type == "ordinal" is categorized via PluralRules.Ordinal while
+// plain numbers go through Cardinal — using an override whose two rulesets
+// disagree on every input.
+func TestWithPluralRulesOrdinalDispatch(t *testing.T) {
+	src := "foo = { $n ->\n    [one] A\n   *[other] B\n}\n"
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(splitPluralRules{}))
+	b.AddResource(fluent.NewResource(src))
+
+	ordinal := fluent.NewNumber(1, fluent.NumberOptions{Type: "ordinal"})
+	got, errs := format(t, b, "foo", map[string]any{"n": ordinal})
+	assert.Equal(t, "A", got, "ordinal numbers consult the override's Ordinal ruleset")
+	assert.Empty(t, errs)
+
+	// Plain (cardinal) 1 hits the stub's Cardinal ("other"), even though real
+	// CLDR rules would say "one" — proving the override is in effect.
+	got, errs = format(t, b, "foo", map[string]any{"n": 1})
+	assert.Equal(t, "B", got, "cardinal numbers consult the override's Cardinal ruleset")
+	assert.Empty(t, errs)
+}

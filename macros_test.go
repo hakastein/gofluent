@@ -3,7 +3,9 @@ package fluent_test
 import (
 	"testing"
 
+	fluent "github.com/hakastein/gofluent"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Ported from macros_test.js (term references, parameterization, attributes).
@@ -103,6 +105,22 @@ func TestParameterizedTermAttributes(t *testing.T) {
 			assert.Empty(t, errs)
 		})
 	}
+}
+
+// TestMissingTermAttribute covers the fallback for a reference to an attribute
+// the term does not define: the selector resolves to a None, the default
+// variant is selected, and a reference error is reported.
+func TestMissingTermAttribute(t *testing.T) {
+	src := "-ship = Ship\n" +
+		"msg = {-ship.missing ->\n" +
+		"   *[other] Fallback\n" +
+		"}\n"
+	b := newTestBundle(t, src)
+
+	got, errs := format(t, b, "msg", nil)
+	assert.Equal(t, "Fallback", got)
+	require.Len(t, errs, 1)
+	require.ErrorIs(t, errs[0], fluent.ErrReference)
 }
 
 // TestTermParamsClearedAfterNestedTerm pins the fluent.js scoping rule: a

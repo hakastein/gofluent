@@ -99,6 +99,29 @@ func TestBrokenEntriesAreNotPublic(t *testing.T) {
 	}
 }
 
+func TestFormatPatternNilPattern(t *testing.T) {
+	b := newTestBundle(t, "foo = Foo\n")
+
+	// A nil pattern (e.g. the Value of an attribute-only message) must not
+	// panic: it renders the {???} fallback with a type error.
+	got, errs := b.FormatPattern(nil, nil)
+	assert.Equal(t, "{???}", got)
+	require.Len(t, errs, 1)
+	require.ErrorIs(t, errs[0], fluent.ErrType)
+}
+
+func TestAttributeOnlyMessage(t *testing.T) {
+	b := newTestBundle(t, "bar =\n    .attr = Bar Attr\n")
+
+	msg, ok := b.Message("bar")
+	require.True(t, ok, "an attribute-only message is still a public message")
+	assert.Nil(t, msg.Value, "attribute-only message has no value")
+
+	got, errs := b.FormatPattern(msg.Attributes["attr"], nil)
+	assert.Equal(t, "Bar Attr", got)
+	assert.Empty(t, errs)
+}
+
 func TestMessageLookup(t *testing.T) {
 	b := newTestBundle(t, "foo = Foo\n-bar = Bar\n")
 

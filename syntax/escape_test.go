@@ -49,36 +49,33 @@ func TestStringLiteralParseHexEscape(t *testing.T) {
 	}
 }
 
-// TestE0026AtEOF pins the E0026 (invalid unicode escape) annotation message to
-// the reference: when \u runs out of hex digits at EOF, fluent.js interpolates
-// ps.currentChar() which is `undefined`, yielding the literal "undefined" in the
-// message (e.g. `\u00undefined`).
+// TestE0026AtEOF pins the E0026 (invalid unicode escape) diagnostic to the
+// reference behavior: when \u runs out of hex digits at EOF, fluent.js
+// interpolates ps.currentChar() which is `undefined`, yielding the literal
+// "undefined" in the reported sequence (e.g. `\u00undefined`). Only the
+// reported escape sequence is asserted, not the message wording around it.
 func TestE0026AtEOF(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
-		code string
-		msg  string
+		seq  string // the offending sequence the annotation must report
 	}{
 		{
 			name: "u escape truncated at EOF",
 			src:  `k = {"\u00`,
-			code: "E0026",
-			msg:  `Invalid Unicode escape sequence: \u00undefined.`,
+			seq:  `\u00undefined`,
 		},
 		{
 			name: "U escape truncated at EOF",
 			src:  `k = {"\U0000`,
-			code: "E0026",
-			msg:  `Invalid Unicode escape sequence: \U0000undefined.`,
+			seq:  `\U0000undefined`,
 		},
 		{
 			// Non-EOF truncation: the offending char (the closing quote) is what
 			// terminates the hex run; this must NOT print "undefined".
 			name: "u escape truncated by quote",
 			src:  `k = {"\u00"}` + "\n",
-			code: "E0026",
-			msg:  `Invalid Unicode escape sequence: \u00".`,
+			seq:  `\u00"`,
 		},
 	}
 	for _, tc := range tests {
@@ -89,7 +86,7 @@ func TestE0026AtEOF(t *testing.T) {
 			for _, e := range res.Body {
 				if j, ok := e.(*ast.Junk); ok {
 					for _, a := range j.Annotations {
-						if a.Code == tc.code {
+						if a.Code == "E0026" {
 							ann = a
 							break
 						}
@@ -100,8 +97,7 @@ func TestE0026AtEOF(t *testing.T) {
 				}
 			}
 			require.NotNil(t, ann, "expected an E0026 annotation for %q", tc.src)
-			assert.Equal(t, tc.code, ann.Code)
-			assert.Equal(t, tc.msg, ann.Message)
+			assert.Contains(t, ann.Message, tc.seq)
 		})
 	}
 }

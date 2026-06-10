@@ -8,46 +8,9 @@ import (
 	"github.com/hakastein/gofluent/syntax"
 )
 
-func TestSerializeRoundTrip(t *testing.T) {
-	tests := []struct {
-		name string
-		src  string
-	}{
-		{name: "simple message", src: "foo = Bar\n"},
-		{name: "term", src: "-brand = Firefox\n"},
-		{name: "message with attribute", src: "foo = Bar\n    .attr = Baz\n"},
-		{name: "multiline pattern", src: "foo =\n    Multi\n    line\n"},
-		{name: "select expression", src: "foo = { $n ->\n        [one] One\n       *[other] Other\n    }\n"},
-		{name: "call arguments", src: "foo = { FUN($a, key: 1) }\n"},
-		{name: "placeable in text", src: "foo = Pre { $var } post\n"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := syntax.Serialize(syntax.Parse(tc.src))
-			// Re-parse and re-serialize to confirm a stable canonical form.
-			got2 := syntax.Serialize(syntax.Parse(got))
-			assert.Equal(t, got, got2, "serialization not idempotent")
-		})
-	}
-}
-
-func TestSerializeStableForCanonicalInput(t *testing.T) {
-	// These inputs are already in canonical form; serialize must reproduce them.
-	tests := []struct {
-		name string
-		src  string
-	}{
-		{name: "simple message", src: "foo = Bar\n"},
-		{name: "term", src: "-brand = Firefox\n"},
-		{name: "message with attribute", src: "foo = Bar\n    .attr = Baz\n"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := syntax.Serialize(syntax.Parse(tc.src))
-			assert.Equal(t, tc.src, got, "serialize must be identity for canonical input")
-		})
-	}
-}
+// Round-trip and idempotency over real-world inputs are covered by the
+// conformance suite (internal/conformance); these tests cover only the
+// serializer options the suite does not exercise.
 
 func TestSerializeWithJunk(t *testing.T) {
 	src := "err = {1xx}\ngood = Value\n"

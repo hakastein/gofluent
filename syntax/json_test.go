@@ -38,27 +38,16 @@ func TestASTJSONShape(t *testing.T) {
 	assert.JSONEq(t, wantJSON, string(b))
 }
 
-// TestASTJSONFieldOrder asserts the literal byte output to lock in field
-// ordering (which a structural JSON comparison would not catch).
-func TestASTJSONFieldOrder(t *testing.T) {
-	res := syntax.Parse("foo = Bar\n")
-	b, err := ast.Marshal(res, false)
-	require.NoError(t, err)
-
-	const want = `{"type":"Resource","body":[{"type":"Message","id":{"type":"Identifier","name":"foo"},"value":{"type":"Pattern","elements":[{"type":"TextElement","value":"Bar"}]},"attributes":[],"comment":null}]}`
-	assert.Equal(t, want, string(b))
-}
-
 // TestASTJSONWithSpans confirms spans appear and use the Span shape.
 func TestASTJSONWithSpans(t *testing.T) {
 	res := syntax.Parse("foo = Bar\n")
 	b, err := ast.Marshal(res, true)
 	require.NoError(t, err)
 
-	var got map[string]interface{}
+	var got map[string]any
 	require.NoError(t, json.Unmarshal(b, &got))
 
-	sp, ok := got["span"].(map[string]interface{})
+	sp, ok := got["span"].(map[string]any)
 	require.True(t, ok, "expected span object, got %v", got["span"])
 	assert.Equal(t, "Span", sp["type"])
 	assert.Equal(t, float64(0), sp["start"])

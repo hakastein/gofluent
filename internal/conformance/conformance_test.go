@@ -82,24 +82,24 @@ func readFixture(t *testing.T, dir, name string) (ftl string, expected []byte) {
 	return string(ftlBytes), expected
 }
 
-// toAny unmarshals JSON bytes into an interface{} tree so two payloads can be
+// toAny unmarshals JSON bytes into an any tree so two payloads can be
 // compared semantically (key order independent).
-func toAny(t *testing.T, label string, data []byte) interface{} {
+func toAny(t *testing.T, label string, data []byte) any {
 	t.Helper()
-	var v interface{}
+	var v any
 	require.NoErrorf(t, json.Unmarshal(data, &v), "unmarshal %s", label)
 	return v
 }
 
 // firstDiff walks two decoded JSON trees and returns a human-readable path to
 // the first structural difference, or "" if they are deeply equal.
-func firstDiff(path string, got, want interface{}) string {
+func firstDiff(path string, got, want any) string {
 	if reflect.DeepEqual(got, want) {
 		return ""
 	}
 	switch w := want.(type) {
-	case map[string]interface{}:
-		g, ok := got.(map[string]interface{})
+	case map[string]any:
+		g, ok := got.(map[string]any)
 		if !ok {
 			return path + ": type mismatch (got non-object)"
 		}
@@ -119,8 +119,8 @@ func firstDiff(path string, got, want interface{}) string {
 				return d
 			}
 		}
-	case []interface{}:
-		g, ok := got.([]interface{})
+	case []any:
+		g, ok := got.([]any)
 		if !ok {
 			return path + ": type mismatch (got non-array)"
 		}
@@ -172,22 +172,22 @@ func TestStructureFixtures(t *testing.T) {
 // carry empty annotation arrays; applying it to both sides is equivalent and
 // guards against the (unlikely) case of a fixture being regenerated with
 // populated annotations.
-func blankJunkAnnotations(v interface{}) {
-	root, ok := v.(map[string]interface{})
+func blankJunkAnnotations(v any) {
+	root, ok := v.(map[string]any)
 	if !ok {
 		return
 	}
-	body, ok := root["body"].([]interface{})
+	body, ok := root["body"].([]any)
 	if !ok {
 		return
 	}
 	for _, e := range body {
-		entry, ok := e.(map[string]interface{})
+		entry, ok := e.(map[string]any)
 		if !ok {
 			continue
 		}
 		if entry["type"] == "Junk" {
-			entry["annotations"] = []interface{}{}
+			entry["annotations"] = []any{}
 		}
 	}
 }
