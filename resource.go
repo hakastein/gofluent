@@ -63,10 +63,17 @@ type indent struct {
 	length int
 }
 
+// maxExpressionDepth bounds inline-expression nesting. A Go stack overflow is a
+// fatal, unrecoverable error (unlike fluent.js, where deep nesting throws a
+// catchable RangeError), so the depth is capped deliberately; real translations
+// never nest anywhere near this.
+const maxExpressionDepth = 100
+
 // parser holds the cursor-based parser state.
 type parser struct {
 	source string
 	cursor int
+	depth  int
 }
 
 // NewResource parses an FTL source into a Resource. The runtime parser is
@@ -211,7 +218,7 @@ func (p *parser) parseMessage(id string) (entry, error) {
 	if strings.HasPrefix(id, "-") {
 		return &term{id: id, value: value, attributes: attributes}, nil
 	}
-	return &Message{ID: id, Value: value, Attributes: attributes}, nil
+	return &Message{id: id, value: value, attributes: attributes}, nil
 }
 
 func (p *parser) parseAttributes() (map[string]Pattern, error) {
@@ -381,6 +388,12 @@ func (p *parser) parsePlaceable() (expression, error) {
 }
 
 func (p *parser) parseInlineExpression() (expression, error) {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxExpressionDepth {
+		return nil, &syntaxError{msg: "Expression nested too deeply"}
+	}
+
 	if p.charAt(p.cursor) == '{' {
 		return p.parsePlaceable()
 	}

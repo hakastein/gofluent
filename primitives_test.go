@@ -15,14 +15,14 @@ func TestUnicodeEscapeOutOfRange(t *testing.T) {
 	// \U110000 is one past the maximum valid codepoint U+10FFFF.
 	b := newTestBundle(t, "x = { \"\\U110000\" }\nnext = After\n")
 
-	got, errs := format(t, b, "x", nil)
+	got, err := format(t, b, "x", nil)
 	assert.Equal(t, "�", got, "an out-of-range \\U escape becomes U+FFFD")
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 
 	// Parsing continued past the broken escape: the next entry is intact.
-	got, errs = format(t, b, "next", nil)
+	got, err = format(t, b, "next", nil)
 	assert.Equal(t, "After", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestPrimitiveNumbers(t *testing.T) {
@@ -33,13 +33,13 @@ func TestPrimitiveNumbers(t *testing.T) {
 		"}\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "one", nil)
+	got, err := format(t, b, "one", nil)
 	assert.Equal(t, "1", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 
-	got, errs = format(t, b, "select", nil)
+	got, err = format(t, b, "select", nil)
 	assert.Equal(t, "One", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestPrimitiveSimpleStrings(t *testing.T) {
@@ -78,17 +78,18 @@ func TestPrimitiveSimpleStrings(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, nil)
+			got, err := format(t, b, tc.id, nil)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 
 	// Attribute value directly.
 	msg, _ := b.Message("bar")
-	got, errs := b.FormatPattern(msg.Attributes["attr"], nil)
+	attr, _ := msg.Attribute("attr")
+	got, err := b.FormatPattern(attr, nil)
 	assert.Equal(t, "Bar Attribute", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestPrimitiveComplexStrings(t *testing.T) {
@@ -119,17 +120,18 @@ func TestPrimitiveComplexStrings(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, nil)
+			got, err := format(t, b, tc.id, nil)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 
 	// Attribute value directly.
 	t.Run("attribute directly", func(t *testing.T) {
 		msg, _ := b.Message("baz")
-		got, errs := b.FormatPattern(msg.Attributes["attr"], nil)
+		attr, _ := msg.Attribute("attr")
+		got, err := b.FormatPattern(attr, nil)
 		assert.Equal(t, "FooBarBazAttribute", got)
-		assert.Empty(t, errs)
+		assert.NoError(t, err)
 	})
 }

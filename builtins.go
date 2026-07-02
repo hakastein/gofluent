@@ -2,6 +2,7 @@ package fluent
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,25 @@ func optBool(v Value) (bool, bool) {
 	return false, false
 }
 
+// sortedKeys returns the option names in a stable order, so that when several
+// options are invalid the first reported error does not depend on Go's random
+// map iteration order.
+func sortedKeys(opts map[string]Value) []string {
+	names := make([]string, 0, len(opts))
+	for name := range opts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// setStrOpt assigns the string form of a named option to a typed string field.
+func setStrOpt[T ~string](dst *T, v Value) {
+	if s, ok := optString(v); ok {
+		*dst = T(s)
+	}
+}
+
 // numberOptionsFrom merges the NUMBER_ALLOWED named options into a
 // NumberOptions, starting from a base set of options. Options outside the
 // fluent.js allowlist (style, currency, unit, ...) are ignored. An invalid
@@ -70,23 +90,20 @@ func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions
 		if !ok || n < min || n > max {
 			return newRangeError("Invalid option value for " + name)
 		}
-		*dst = intPtr(n)
+		*dst = Int(n)
 		return nil
 	}
 	var err error
-	for name, v := range opts {
+	for _, name := range sortedKeys(opts) {
+		v := opts[name]
 		switch name {
 		case "currencyDisplay":
-			if s, ok := optString(v); ok {
-				out.CurrencyDisplay = s
-			}
+			setStrOpt(&out.CurrencyDisplay, v)
 		case "unitDisplay":
-			if s, ok := optString(v); ok {
-				out.UnitDisplay = s
-			}
+			setStrOpt(&out.UnitDisplay, v)
 		case "useGrouping":
 			if b, ok := optBool(v); ok {
-				out.UseGrouping = boolPtr(b)
+				out.UseGrouping = Bool(b)
 			}
 		case "minimumIntegerDigits":
 			err = setInt(&out.MinimumIntegerDigits, name, v, 1, 21)
@@ -112,47 +129,42 @@ func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions
 // value returns a range error, mirroring Intl.DateTimeFormat.
 func dateTimeOptionsFrom(base DateTimeOptions, opts map[string]Value) (DateTimeOptions, error) {
 	out := base
-	setStr := func(dst *string, v Value) {
-		if s, ok := optString(v); ok {
-			*dst = s
-		}
-	}
 	for name, v := range opts {
 		switch name {
 		case "dateStyle":
-			setStr(&out.DateStyle, v)
+			setStrOpt(&out.DateStyle, v)
 		case "timeStyle":
-			setStr(&out.TimeStyle, v)
+			setStrOpt(&out.TimeStyle, v)
 		case "dayPeriod":
-			setStr(&out.DayPeriod, v)
+			setStrOpt(&out.DayPeriod, v)
 		case "hour12":
 			if b, ok := optBool(v); ok {
-				out.Hour12 = boolPtr(b)
+				out.Hour12 = Bool(b)
 			}
 		case "weekday":
-			setStr(&out.Weekday, v)
+			setStrOpt(&out.Weekday, v)
 		case "era":
-			setStr(&out.Era, v)
+			setStrOpt(&out.Era, v)
 		case "year":
-			setStr(&out.Year, v)
+			setStrOpt(&out.Year, v)
 		case "month":
-			setStr(&out.Month, v)
+			setStrOpt(&out.Month, v)
 		case "day":
-			setStr(&out.Day, v)
+			setStrOpt(&out.Day, v)
 		case "hour":
-			setStr(&out.Hour, v)
+			setStrOpt(&out.Hour, v)
 		case "minute":
-			setStr(&out.Minute, v)
+			setStrOpt(&out.Minute, v)
 		case "second":
-			setStr(&out.Second, v)
+			setStrOpt(&out.Second, v)
 		case "timeZoneName":
-			setStr(&out.TimeZoneName, v)
+			setStrOpt(&out.TimeZoneName, v)
 		case "fractionalSecondDigits":
 			n, ok := optInt(v)
 			if !ok || n < 1 || n > 3 {
 				return out, newRangeError("Invalid option value for fractionalSecondDigits")
 			}
-			out.FractionalSecondDigits = intPtr(n)
+			out.FractionalSecondDigits = Int(n)
 		}
 	}
 	return out, nil

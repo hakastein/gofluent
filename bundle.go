@@ -1,6 +1,7 @@
 package fluent
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -17,17 +18,17 @@ type TextTransform func(string) string
 // Bundle is a single-language store of translation resources, responsible for
 // formatting message values and attributes to strings.
 //
-// A Bundle is safe for concurrent use: FormatPattern, Message, AddFunction,
-// AddResource, and AddResourceOverriding may be called from multiple
-// goroutines simultaneously. The locale and the injected formatters are set
-// once at construction and never mutated afterwards.
+// A Bundle is safe for concurrent use: FormatPattern, Message, AddResource,
+// and AddResourceOverriding may be called from multiple goroutines
+// simultaneously. The locale, the functions, and the injected formatters are
+// set once at construction and never mutated afterwards.
 type Bundle struct {
 	// locale is the BCP-47 tag passed to the pluggable formatters.
 	locale string
 
-	// mu guards terms, messages, and functions. It is held per map operation,
-	// never across a whole FormatPattern or a user-function call, so a function
-	// that itself calls AddFunction does not deadlock.
+	// mu guards terms and messages against concurrent AddResource writes. It is
+	// held per map operation, never across a whole FormatPattern. functions is
+	// not guarded: it is populated at construction and read-only thereafter.
 	mu        sync.RWMutex
 	terms     map[string]*term
 	messages  map[string]*Message
@@ -126,13 +127,6 @@ func NewBundle(locale string, opts ...Option) *Bundle {
 // Locale returns the bundle's primary locale string.
 func (b *Bundle) Locale() string { return b.locale }
 
-// AddFunction registers (or overrides) a runtime function by name.
-func (b *Bundle) AddFunction(name string, fn Function) {
-	b.mu.Lock()
-	b.functions[name] = fn
-	b.mu.Unlock()
-}
-
 // Message returns the message with the given id, if present.
 func (b *Bundle) Message(id string) (*Message, bool) {
 	b.mu.RLock()
@@ -150,22 +144,23 @@ func (b *Bundle) lookupTerm(id string) (*term, bool) {
 }
 
 func (b *Bundle) lookupFunction(name string) (Function, bool) {
-	b.mu.RLock()
 	fn, ok := b.functions[name]
-	b.mu.RUnlock()
 	return fn, ok
 }
 
 // AddResource adds a parsed resource to the bundle without allowing overrides.
-// It returns errors for any attempted overrides of existing messages/terms.
-func (b *Bundle) AddResource(res *Resource) []error {
-	return b.addResource(res, false)
+// It returns a non-nil error (joining one per attempted override) if the
+// resource redefines an existing message or term; the non-conflicting entries
+// are still added. Classify with errors.Is or recover the individual errors
+// through the joined error's Unwrap() []error.
+func (b *Bundle) AddResource(res *Resource) error {
+	return errors.Join(b.addResource(res, false)...)
 }
 
 // AddResourceOverriding adds a parsed resource, allowing it to override existing
 // messages and terms.
-func (b *Bundle) AddResourceOverriding(res *Resource) []error {
-	return b.addResource(res, true)
+func (b *Bundle) AddResourceOverriding(res *Resource) error {
+	return errors.Join(b.addResource(res, true)...)
 }
 
 func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
@@ -186,12 +181,12 @@ func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 			b.terms[e.id] = e
 		case *Message:
 			if !allowOverrides {
-				if _, exists := b.messages[e.ID]; exists {
-					errs = append(errs, newOverrideError("message", e.ID))
+				if _, exists := b.messages[e.id]; exists {
+					errs = append(errs, newOverrideError("message", e.id))
 					continue
 				}
 			}
-			b.messages[e.ID] = e
+			b.messages[e.id] = e
 		}
 	}
 
@@ -212,16 +207,25 @@ func (e *overrideError) Error() string { return e.msg }
 // (e.g. a Number carrying formatting options); other types render as a
 // missing-variable fallback with an error.
 //
-// Formatting is fault-tolerant: a best-effort string is always returned, and
-// every problem encountered (missing references, type mismatches, ...) is
-// reported in errs, each classified by one of the ErrReference / ErrRange /
-// ErrType sentinels.
+// Formatting is fault-tolerant: a best-effort string is always returned even
+// when the error is non-nil. A non-nil error means "partial output plus the
+// problems encountered" (missing references, type mismatches, ...), not
+// failure — the returned string is still usable, with fluent.js-style
+// placeholders standing in for the parts that failed. The error joins every
+// problem via errors.Join, so errors.Is(err, ErrReference) (or ErrRange /
+// ErrType) classifies it and the joined error's Unwrap() []error recovers the
+// full list.
 //
 // Precision note: integer arguments are stored as float64 (Fluent's only
 // numeric type, matching JS). int64/uint64 magnitudes above 2^53 cannot be
 // represented exactly and may be rounded; pass a preformatted string (or a
 // custom Value) when exact rendering of such large integers matters.
-func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (result string, errs []error) {
+func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (string, error) {
+	result, errs := b.formatPattern(pattern, args)
+	return result, errors.Join(errs...)
+}
+
+func (b *Bundle) formatPattern(pattern Pattern, args map[string]any) (result string, errs []error) {
 	// A simple pattern resolves without a scope.
 	if s, ok := pattern.(textPattern); ok {
 		return b.transform(string(s)), nil
@@ -248,8 +252,14 @@ func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (result str
 		return NewNone("").Format(scope), scope.errs
 	}
 	// Pattern is sealed; after the textPattern and nil checks only
-	// complexPattern remains.
-	return resolveComplexPattern(scope, pattern.(complexPattern)).Format(scope), scope.errs
+	// complexPattern remains. Guard the assertion anyway so an unforeseen
+	// implementation degrades to the fallback instead of panicking.
+	cp, ok := pattern.(complexPattern)
+	if !ok {
+		scope.reportError(newTypeError("Cannot format value"))
+		return NewNone("").Format(scope), scope.errs
+	}
+	return resolveComplexPattern(scope, cp).Format(scope), scope.errs
 }
 
 // coerceArgs converts raw Go argument values into Fluent Values.

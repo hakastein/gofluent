@@ -77,17 +77,18 @@ func matchSelector(scope *Scope, selector, key Value) bool {
 		return sel.Value == kn.Value
 	}
 
-	// Numeric selector against a string key: consult the plural rules.
+	// Numeric selector against a string key: consult the plural rules. A panic
+	// there falls through to no category, so selection reaches the default.
 	ks, ok := key.(String)
 	if !ok {
 		return false
 	}
-	var category string
-	if sel.Options.Type == "ordinal" {
-		category = scope.bundle.pluralRules.Ordinal(scope.bundle.locale, sel.Value, sel.Options)
-	} else {
-		category = scope.bundle.pluralRules.Cardinal(scope.bundle.locale, sel.Value, sel.Options)
-	}
+	category := guardExtension(scope, func() string { return "" }, func() string {
+		if sel.Options.Type == Ordinal {
+			return scope.bundle.pluralRules.Ordinal(scope.bundle.locale, sel.Value, sel.Options)
+		}
+		return scope.bundle.pluralRules.Cardinal(scope.bundle.locale, sel.Value, sel.Options)
+	})
 	return string(ks) == category
 }
 
@@ -117,7 +118,7 @@ func resolveExpression(scope *Scope, expr expression) Value {
 	case *stringLiteral:
 		return String(e.value)
 	case *numberLiteral:
-		return NewNumber(e.value, NumberOptions{MinimumFractionDigits: intPtr(e.precision)})
+		return NewNumber(e.value, NumberOptions{MinimumFractionDigits: Int(e.precision)})
 	case *variableReference:
 		return resolveVariableReference(scope, e)
 	case *messageReference:
@@ -169,15 +170,15 @@ func resolveMessageReference(scope *Scope, ref *messageReference) Value {
 	}
 
 	if ref.attr != "" {
-		if attribute, ok := message.Attributes[ref.attr]; ok {
+		if attribute, ok := message.attributes[ref.attr]; ok {
 			return resolvePattern(scope, attribute)
 		}
 		scope.reportError(newReferenceError("Unknown attribute: %s", ref.attr))
 		return NewNone(ref.name + "." + ref.attr)
 	}
 
-	if message.Value != nil {
-		return resolvePattern(scope, message.Value)
+	if message.value != nil {
+		return resolvePattern(scope, message.value)
 	}
 
 	scope.reportError(newReferenceError("No value: %s", ref.name))
@@ -229,31 +230,62 @@ func resolveFunctionReference(scope *Scope, ref *functionReference) Value {
 		scope.reportError(err)
 		return NewNone(ref.name + "()")
 	}
+	// A nil result (with no error) is a broken function contract, not a value:
+	// treat it like an error so it never reaches a nil-interface Format call.
+	if result == nil {
+		scope.reportError(newTypeError("Function %s() returned no value", ref.name))
+		return NewNone(ref.name + "()")
+	}
 	return result
 }
 
 // callFunction invokes a Function, converting a returned error or a panic into
-// the error path. A runtime.Error is a programming bug, not a translation
-// error, so it is re-panicked instead.
+// the error path.
 func callFunction(fn Function, positional []Value, named map[string]Value) (result Value, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			if re, ok := r.(runtime.Error); ok {
-				panic(re)
-			}
-			if fe, ok := r.(error); ok {
-				err = fe
-			} else {
-				err = fmt.Errorf("%v", r)
-			}
+			err = recoverExtension(r)
 		}
 	}()
 	return fn(positional, named)
 }
 
+// recoverExtension classifies a value recovered from a panic in a pluggable
+// extension point (a Function, formatter, or plural ruleset). A runtime.Error
+// is a genuine programming bug, not a translation error, so it is re-panicked;
+// any other value becomes an error to route through the fault-tolerant path.
+func recoverExtension(r any) error {
+	if re, ok := r.(runtime.Error); ok {
+		panic(re)
+	}
+	if fe, ok := r.(error); ok {
+		return fe
+	}
+	return fmt.Errorf("%v", r)
+}
+
+// guardExtension runs call, which invokes an injected formatter or plural
+// ruleset, and shields the resolution from a panic inside it: a runtime.Error
+// re-panics (recoverExtension), any other panic is reported to the scope and
+// fallback is returned.
+func guardExtension(scope *Scope, fallback func() string, call func() string) (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			scope.reportError(recoverExtension(r))
+			out = fallback()
+		}
+	}()
+	return call()
+}
+
 // resolveSelectExpression resolves a select expression to the member value.
 func resolveSelectExpression(scope *Scope, expr *selectExpression) Value {
 	sel := resolveExpression(scope, expr.selector)
+	// A selector is matched but never formatted, so a Number's deferred option
+	// error would otherwise be lost; report it here (once) before matching.
+	if n, ok := sel.(*Number); ok {
+		n.reportOptErr(scope)
+	}
 	if _, isNone := sel.(*None); isNone {
 		return getDefault(scope, expr.variants, expr.star)
 	}

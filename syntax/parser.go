@@ -7,6 +7,13 @@ import (
 	"github.com/hakastein/gofluent/syntax/ast"
 )
 
+// maxExpressionDepth bounds inline-expression nesting. A Go stack overflow is a
+// fatal, unrecoverable error (unlike fluent.js, where deep nesting throws a
+// catchable RangeError), so the depth is capped deliberately; real translations
+// never nest anywhere near this. Exceeding it fails through the normal error
+// path, yielding Junk like any other syntax error.
+const maxExpressionDepth = 100
+
 var trailingWSRe = regexp.MustCompile(`[ \n\r]+$`)
 
 var functionNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_-]*$`)
@@ -563,59 +570,62 @@ func (p *Parser) getIndent(ps *parserStream, value string, start int) *indent {
 func (p *Parser) dedent(elements []any, commonIndent int) []ast.PatternElement {
 	var trimmed []ast.PatternElement
 
+	// Adjacent text segments (TextElements and dedented indents) merge into a
+	// single TextElement. Segments accumulate in a strings.Builder and flush
+	// once, so a run of N segments costs O(N) rather than O(N^2) from repeated
+	// string concatenation.
+	var run strings.Builder
+	runActive := false
+	runStart, runEnd := 0, 0
+	flush := func() {
+		if !runActive {
+			return
+		}
+		te := &ast.TextElement{Value: run.String()}
+		if p.withSpans {
+			te.AddSpan(runStart, runEnd)
+		}
+		trimmed = append(trimmed, te)
+		run.Reset()
+		runActive = false
+	}
+
 	for _, element := range elements {
 		if pl, ok := element.(*ast.Placeable); ok {
+			flush()
 			trimmed = append(trimmed, pl)
 			continue
 		}
 
-		if ind, ok := element.(*indent); ok {
-			// Strip common indent.
-			keep := len(ind.value) - commonIndent
+		var val string
+		var segStart, segEnd int
+		switch e := element.(type) {
+		case *indent:
+			keep := len(e.value) - commonIndent
 			if keep < 0 {
 				keep = 0
 			}
-			ind.value = ind.value[:keep]
-			if len(ind.value) == 0 {
+			e.value = e.value[:keep]
+			if len(e.value) == 0 {
 				continue
 			}
-		}
-
-		var prev ast.PatternElement
-		if len(trimmed) > 0 {
-			prev = trimmed[len(trimmed)-1]
-		}
-		if prevText, ok := prev.(*ast.TextElement); ok {
-			// Join adjacent TextElements.
-			var elemVal string
-			var elemEnd int
-			switch e := element.(type) {
-			case *ast.TextElement:
-				elemVal = e.Value
-				if e.GetSpan() != nil {
-					elemEnd = e.GetSpan().End
-				}
-			case *indent:
-				elemVal = e.value
-				elemEnd = e.span.End
+			val = e.value
+			segStart, segEnd = e.span.Start, e.span.End
+		case *ast.TextElement:
+			val = e.Value
+			if sp := e.GetSpan(); sp != nil {
+				segStart, segEnd = sp.Start, sp.End
 			}
-			sum := &ast.TextElement{Value: prevText.Value + elemVal}
-			if p.withSpans {
-				sum.AddSpan(prevText.GetSpan().Start, elemEnd)
-			}
-			trimmed[len(trimmed)-1] = sum
-			continue
 		}
 
-		if ind, ok := element.(*indent); ok {
-			te := &ast.TextElement{Value: ind.value}
-			p.addSpan(te, ind.span.Start, ind.span.End)
-			trimmed = append(trimmed, te)
-			continue
+		if !runActive {
+			runActive = true
+			runStart = segStart
 		}
-
-		trimmed = append(trimmed, element.(ast.PatternElement))
+		run.WriteString(val)
+		runEnd = segEnd
 	}
+	flush()
 
 	// Trim trailing whitespace from the Pattern.
 	if len(trimmed) > 0 {
@@ -767,6 +777,12 @@ func (p *Parser) getExpression(ps *parserStream) (ast.Expression, error) {
 // getInlineExpression returns an InlineExpression. A Placeable also satisfies
 // InlineExpression in this model.
 func (p *Parser) getInlineExpression(ps *parserStream) (ast.InlineExpression, error) {
+	ps.depth++
+	defer func() { ps.depth-- }()
+	if ps.depth > maxExpressionDepth {
+		return nil, newParseError("E0028")
+	}
+
 	start := ps.index
 
 	if ps.currentChar() == '{' {

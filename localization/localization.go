@@ -10,6 +10,7 @@
 package localization
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -29,8 +30,9 @@ type Localization struct {
 type ResourceLoader func(locale, resourceID string) (string, error)
 
 // New builds a Localization from already-constructed bundles, in priority order
-// (highest-priority locale first). Callers retain ownership of the input slice.
-func New(bundles []*fluent.Bundle) *Localization {
+// (highest-priority locale first). The single-bundle case reads New(b); a
+// slice expands with New(bundles...).
+func New(bundles ...*fluent.Bundle) *Localization {
 	return &Localization{bundles: slices.Clone(bundles)}
 }
 
@@ -66,14 +68,14 @@ type Config struct {
 // locale by loading every cfg.Resources id through cfg.Loader. Bundles are
 // built in negotiated (priority) order.
 //
-// Loader and AddResource errors are collected and returned but are non-fatal:
+// Loader and AddResource errors are joined and returned but are non-fatal:
 // a failing resource is skipped so the rest of the chain still works, and a
 // bundle is created for each negotiated locale regardless. A negotiation
 // error is fatal: the Localization is nil.
-func NewFromLocales(cfg Config) (*Localization, []error) {
+func NewFromLocales(cfg Config) (*Localization, error) {
 	supported, err := langneg.NegotiateLanguages(cfg.Requested, cfg.Available, cfg.Default, cfg.Strategy)
 	if err != nil {
-		return nil, []error{err}
+		return nil, err
 	}
 
 	var errs []error
@@ -86,14 +88,14 @@ func NewFromLocales(cfg Config) (*Localization, []error) {
 				errs = append(errs, fmt.Errorf("localization: loading %q for %q: %w", resID, locale, loadErr))
 				continue
 			}
-			for _, ae := range bundle.AddResource(fluent.NewResource(source)) {
+			if ae := bundle.AddResource(fluent.NewResource(source)); ae != nil {
 				errs = append(errs, fmt.Errorf("localization: adding %q to %q: %w", resID, locale, ae))
 			}
 		}
 		bundles = append(bundles, bundle)
 	}
 
-	return New(bundles), errs
+	return New(bundles...), errors.Join(errs...)
 }
 
 // splitID splits a dotted id "msg.attr" into ("msg", "attr"). A bare "msg"
@@ -108,13 +110,13 @@ func splitID(id string) (msgID, attr string) {
 // FormatValue formats the message (or attribute) identified by id, walking the
 // bundle chain in priority order. id may be "msg" or "msg.attr". A bundle is
 // skipped when its message has no value (value form) or lacks the requested
-// attribute (attribute form). Resolver errors encountered in the winning
-// bundle are returned. On a total miss the id is returned unchanged together
-// with a single *NotFoundError.
+// attribute (attribute form). A non-nil error carries the resolver problems
+// from the winning bundle (best-effort output is still returned). On a total
+// miss the id is returned unchanged together with a *NotFoundError.
 //
 // This mirrors fluent.js Localization.formatValue layered over the fluent-dom
 // dotted attribute syntax.
-func (l *Localization) FormatValue(id string, args map[string]any) (string, []error) {
+func (l *Localization) FormatValue(id string, args map[string]any) (string, error) {
 	msgID, attr := splitID(id)
 
 	for _, bundle := range l.bundles {
@@ -126,13 +128,14 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, []er
 		if attr == "" {
 			// A message with attributes but no value cannot produce a string
 			// value; treat it as a miss so the next bundle gets a chance.
-			if msg.Value == nil {
+			value := msg.Value()
+			if value == nil {
 				continue
 			}
-			return bundle.FormatPattern(msg.Value, args)
+			return bundle.FormatPattern(value, args)
 		}
 
-		pattern, has := msg.Attributes[attr]
+		pattern, has := msg.Attribute(attr)
 		if !has {
 			// Message exists here but lacks the requested attribute; fall through
 			// to the next bundle (fluent.js missing-attribute fallback).
@@ -141,45 +144,49 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, []er
 		return bundle.FormatPattern(pattern, args)
 	}
 
-	return id, []error{&NotFoundError{ID: id}}
+	return id, &NotFoundError{ID: id}
 }
 
-// Message is a fully formatted message: its value and all of its attributes.
-type Message struct {
+// FormattedMessage is a fully formatted message: its value and all of its
+// attributes. It is distinct from fluent.Message, which is the compiled,
+// unformatted message.
+type FormattedMessage struct {
 	Value      string
 	Attributes map[string]string
 }
 
 // FormatMessage resolves a whole message (value plus all attributes) from the
 // first bundle in the chain that defines it. The value is "" when the message
-// has only attributes. On a total miss the value is the id and the errors
-// contain a single *NotFoundError.
-func (l *Localization) FormatMessage(id string, args map[string]any) (Message, []error) {
+// has only attributes. A non-nil error joins the resolver problems from the
+// winning bundle. On a total miss the value is the id and the error is a
+// *NotFoundError.
+func (l *Localization) FormatMessage(id string, args map[string]any) (FormattedMessage, error) {
 	for _, bundle := range l.bundles {
 		msg, ok := bundle.Message(id)
 		if !ok {
 			continue
 		}
 
-		var out Message
+		var out FormattedMessage
 		var errs []error
-		if msg.Value != nil {
-			var ferrs []error
-			out.Value, ferrs = bundle.FormatPattern(msg.Value, args)
-			errs = append(errs, ferrs...)
+		if value := msg.Value(); value != nil {
+			var ferr error
+			out.Value, ferr = bundle.FormatPattern(value, args)
+			errs = append(errs, ferr)
 		}
-		if len(msg.Attributes) > 0 {
-			out.Attributes = make(map[string]string, len(msg.Attributes))
-			for name, pattern := range msg.Attributes {
-				formatted, ferrs := bundle.FormatPattern(pattern, args)
+		if names := msg.AttributeNames(); len(names) > 0 {
+			out.Attributes = make(map[string]string, len(names))
+			for _, name := range names {
+				pattern, _ := msg.Attribute(name)
+				formatted, ferr := bundle.FormatPattern(pattern, args)
 				out.Attributes[name] = formatted
-				errs = append(errs, ferrs...)
+				errs = append(errs, ferr)
 			}
 		}
-		return out, errs
+		return out, errors.Join(errs...)
 	}
 
-	return Message{Value: id}, []error{&NotFoundError{ID: id}}
+	return FormattedMessage{Value: id}, &NotFoundError{ID: id}
 }
 
 // NotFoundError reports that an id could not be resolved in any bundle.

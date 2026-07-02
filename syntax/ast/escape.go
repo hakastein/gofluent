@@ -27,7 +27,7 @@ func unescapeStringLiteral(s string) string {
 			}
 			if r, ok := parseHexEscape(rs, i+2, n); ok {
 				out = append(out, r)
-				i += 2 + n
+				i += 1 + n
 			} else {
 				out = append(out, rs[i])
 			}

@@ -28,39 +28,39 @@ func newIsolatingBundle(t *testing.T) *fluent.Bundle {
 
 func TestIsolatesMessageReferences(t *testing.T) {
 	b := newIsolatingBundle(t)
-	got, errs := format(t, b, "bar", nil)
+	got, err := format(t, b, "bar", nil)
 	assert.Equal(t, fsi+"Foo"+pdi+" Bar", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestIsolatesStringVariables(t *testing.T) {
 	b := newIsolatingBundle(t)
-	got, errs := format(t, b, "baz", map[string]any{"arg": "Arg"})
+	got, err := format(t, b, "baz", map[string]any{"arg": "Arg"})
 	assert.Equal(t, fsi+"Arg"+pdi+" Baz", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestIsolatesNumberVariables(t *testing.T) {
 	b := newIsolatingBundle(t)
-	got, errs := format(t, b, "baz", map[string]any{"arg": 1})
+	got, err := format(t, b, "baz", map[string]any{"arg": 1})
 	assert.Equal(t, fsi+"1"+pdi+" Baz", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestIsolatesComplexInterpolations(t *testing.T) {
 	b := newIsolatingBundle(t)
-	got, errs := format(t, b, "qux", map[string]any{"arg": "Arg"})
+	got, err := format(t, b, "qux", map[string]any{"arg": "Arg"})
 	expectedBar := fsi + fsi + "Foo" + pdi + " Bar" + pdi
 	expectedBaz := fsi + fsi + "Arg" + pdi + " Baz" + pdi
 	assert.Equal(t, expectedBar+" "+expectedBaz, got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestSkipsIsolationSinglePlaceable(t *testing.T) {
 	src := "-brand-short-name = Amaya\nfoo = { -brand-short-name }\n"
 	b := fluent.NewBundle("en-US")
 	b.AddResource(fluent.NewResource(src))
-	got, errs := format(t, b, "foo", nil)
+	got, err := format(t, b, "foo", nil)
 	assert.Equal(t, "Amaya", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
