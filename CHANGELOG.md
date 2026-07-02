@@ -45,6 +45,46 @@ pathological input.
 - With several invalid `NUMBER()` options the reported error is deterministic
   (options are validated in sorted order, not map order).
 
+### Changed — breaking API
+
+A coordinated pre-1.0 pass toward an idiomatic-Go 1.0 surface, guided by
+"idiomatic Go over JS-mirroring". No formatting or parsing behavior changed.
+
+- **`[]error` returns collapse to a single `error` built with `errors.Join`.**
+  `Bundle.FormatPattern`, `Bundle.AddResource`, `Bundle.AddResourceOverriding`,
+  and `localization`'s `FormatValue`, `FormatMessage`, and `NewFromLocales` now
+  return `error`. `if err != nil` and `errors.Is(err, fluent.ErrReference)`
+  work directly; the full list stays recoverable via the joined error's
+  `Unwrap() []error`. Formatting is still fault-tolerant — a non-nil error
+  comes with a usable best-effort string (partial output plus the problems,
+  not failure).
+- **`Message` is opaque.** Its fields are unexported; reach its state through
+  `ID()`, `Value()` (nil when the message has no value), `Attribute(name)`, and
+  `AttributeNames()` (a sorted copy). A caller can no longer race a Bundle by
+  mutating the attributes map it shares across FormatPattern calls.
+- **Closed-enum options are typed.** `NumberOptions` and `DateTimeOptions`
+  fields with a fixed value set use named string types — `NumberStyle`,
+  `CurrencyDisplay`, `UnitDisplay`, `PluralType`, `DateTimeStyle`, `TextWidth`,
+  `NumericStyle`, `MonthStyle`, `TimeZoneNameStyle` — with exported constants
+  (`StyleCurrency`, `Ordinal`, `MonthShort`, `WidthLong`, ...), so a mistyped
+  option no longer compiles. Genuinely open-ended values (currency, unit,
+  timeZone, calendar, numberingSystem) stay plain strings.
+- **`fluent.Bool` and `fluent.Int`** are exported pointer helpers for the
+  pointer-typed option fields (precedent: `aws.Bool`/`aws.Int`).
+- **`localization.Message` → `localization.FormattedMessage`**, disambiguating
+  the formatted result from the compiled `fluent.Message`.
+- **`localization.New` is variadic**: `New(b)` for one bundle,
+  `New(bundles...)` for a slice. `localization` is the official high-level
+  entry point even for a single bundle; `Bundle.FormatPattern` stays the
+  low-level API.
+
+### Removed
+
+- **`Bundle.AddFunction`.** Runtime functions are constructor-only through
+  `WithFunctions`, matching fluent.js (whose `FluentBundle` has no
+  `addFunction`). The functions map is immutable after construction and no
+  longer needs the bundle mutex.
+
 ## [0.5.0] - 2026-06-15
 
 A fluent.js-parity and cleanup pass: backend and frontend rendering the same

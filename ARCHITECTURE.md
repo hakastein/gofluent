@@ -21,9 +21,10 @@ are not obvious from the code. For build, test, and contribution mechanics, see
    therefore fluent.js) out of the box. To do so it depends directly on
    `github.com/hakastein/gocldr`; the `langneg` subpackage remains
    standalone (stdlib-only), and testify is a test-only dependency.
-3. **Fault tolerance.** The resolver returns the collected errors and renders
-   fluent.js-style placeholders so a best-effort string is always produced;
-   only genuine runtime faults propagate (see the panic policy below).
+3. **Fault tolerance.** The resolver returns a single error joining the problems
+   it collected (`errors.Join`) and renders fluent.js-style placeholders so a
+   best-effort string is always produced; only genuine runtime faults propagate
+   (see the panic policy below).
 4. **Pluggable formatting.** The core formats against small interfaces
    (`PluralRules`, `NumberFormatter`, `DateTimeFormatter`). The default
    implementations are CLDR-backed — they adapt the external `gocldr` module
@@ -59,13 +60,14 @@ Formatting a pattern (`Bundle.FormatPattern`) walks the runtime AST and
 resolves placeables. It is **fault-tolerant**: rather than returning early or
 panicking, it records an error, renders a fluent.js-style placeholder for the
 failed part (`{$var}`, `{-term}`, `{FUNC()}`), and continues. A best-effort
-string is always returned alongside the collected errors.
+string is always returned alongside a single error that joins the collected
+problems (via `errors.Join`); a non-nil error still carries usable output.
 
 The runtime AST is sealed: `Pattern` is an opaque interface whose
 implementations live in the root package, and the resolver dispatches over
 typed unions (`expression`, `literal`, `patternElement`) rather than `any`.
-Users only ever hold a `Pattern` (from `Message.Value` or an attribute) and
-hand it back to `FormatPattern`.
+Users only ever hold a `Pattern` (from `Message.Value()` or `Message.Attribute`)
+and hand it back to `FormatPattern`.
 
 Errors are classified by sentinel wrapping, mirroring the JS error classes
 fluent.js reports:
