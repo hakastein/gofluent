@@ -15,9 +15,9 @@ func TestTermReferencesAndCalls(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	for _, id := range []string{"term-ref", "term-call"} {
-		got, errs := format(t, b, id, map[string]any{})
+		got, err := format(t, b, id, map[string]any{})
 		assert.Equalf(t, "Bar", got, "%s", id)
-		assert.Emptyf(t, errs, "%s", id)
+		assert.NoErrorf(t, err, "%s", id)
 	}
 }
 
@@ -47,9 +47,9 @@ func TestTermPassingArguments(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, tc.args)
+			got, err := format(t, b, tc.id, tc.args)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -100,9 +100,9 @@ func TestParameterizedTermAttributes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, tc.args)
+			got, err := format(t, b, tc.id, tc.args)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -117,33 +117,24 @@ func TestMissingTermAttribute(t *testing.T) {
 		"}\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "msg", nil)
+	got, err := format(t, b, "msg", nil)
 	assert.Equal(t, "Fallback", got)
-	require.Len(t, errs, 1)
-	require.ErrorIs(t, errs[0], fluent.ErrReference)
+	require.ErrorIs(t, err, fluent.ErrReference)
 }
 
 // TestTermParamsClearedAfterNestedTerm pins the fluent.js scoping rule: a
-// TermReference sets scope.params for the duration of its own body and then
-// nulls them out unconditionally (resolver.ts lines 239-251: `scope.params =
-// getArguments(...).named` ... `scope.params = null`). It does NOT restore a
-// previously-active params bag. So once an outer term has embedded an inner
-// term, any variable the outer term references AFTER that embedding is resolved
-// against the top-level args, not against the outer term's own params.
-//
-// Here -outer embeds -inner, then references $x. With the fluent.js null-out
-// rule the trailing {$x} sees scope.params == null after -inner resolves and so
-// reads the top-level arg "top". (A restore-prev implementation would instead
-// surface the outer term's own arg "term".)
+// term's params are cleared (not restored) after an embedded term resolves, so
+// a variable the outer term references after the embedding reads the top-level
+// args, not the outer term's own params.
 func TestTermParamsClearedAfterNestedTerm(t *testing.T) {
 	src := "-inner = Inner\n" +
 		"-outer = {-inner} {$x}\n" +
 		"msg = {-outer(x: \"term\")}\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "msg", map[string]any{"x": "top"})
+	got, err := format(t, b, "msg", map[string]any{"x": "top"})
 	assert.Equal(t, "Inner top", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestNestingTermReferences(t *testing.T) {
@@ -170,9 +161,9 @@ func TestNestingTermReferences(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, tc.args)
+			got, err := format(t, b, tc.id, tc.args)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 }

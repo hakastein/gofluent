@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// jsWS matches the same character set as JavaScript's \s, which the fluent.js
+// token regexes use: ASCII whitespace plus the Unicode space separators, LS,
+// PS, and BOM. Go's \s is ASCII-only and would reject sources fluent.js parses.
+const jsWS = `[\t\n\v\f\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]`
+
 // The fluent.js runtime parser uses sticky (/y) regexes anchored at a moving
 // cursor. Go's regexp has no sticky flag, so each pattern is anchored with a
 // leading `^` and matched against source[cursor:].
@@ -26,15 +31,15 @@ var (
 	reBlankLines      = regexp.MustCompile(` *\r?\n`)
 	reIndent          = regexp.MustCompile(`( *)$`)
 
-	tokenBraceOpen    = regexp.MustCompile(`^{(?: |\r?\n)*`)
-	tokenBraceClose   = regexp.MustCompile(`^(?: |\r?\n)*}`)
-	tokenBracketOpen  = regexp.MustCompile(`^\[(?: |\r?\n)*`)
-	tokenBracketClose = regexp.MustCompile(`^(?: |\r?\n)*] *`)
-	tokenParenOpen    = regexp.MustCompile(`^(?: |\r?\n)*\((?: |\r?\n)*`)
-	tokenArrow        = regexp.MustCompile(`^(?: |\r?\n)*->(?: |\r?\n)*`)
-	tokenColon        = regexp.MustCompile(`^(?: |\r?\n)*:(?: |\r?\n)*`)
-	tokenComma        = regexp.MustCompile(`^(?: |\r?\n)*,?(?: |\r?\n)*`)
-	tokenBlank        = regexp.MustCompile(`^(?: |\r?\n)+`)
+	tokenBraceOpen    = regexp.MustCompile(`^{` + jsWS + `*`)
+	tokenBraceClose   = regexp.MustCompile(`^` + jsWS + `*}`)
+	tokenBracketOpen  = regexp.MustCompile(`^\[` + jsWS + `*`)
+	tokenBracketClose = regexp.MustCompile(`^` + jsWS + `*] *`)
+	tokenParenOpen    = regexp.MustCompile(`^` + jsWS + `*\(` + jsWS + `*`)
+	tokenArrow        = regexp.MustCompile(`^` + jsWS + `*->` + jsWS + `*`)
+	tokenColon        = regexp.MustCompile(`^` + jsWS + `*:` + jsWS + `*`)
+	tokenComma        = regexp.MustCompile(`^` + jsWS + `*,?` + jsWS + `*`)
+	tokenBlank        = regexp.MustCompile(`^` + jsWS + `+`)
 
 	// reMessageScan finds the next message/term beginning at a line start.
 	reMessageScan = regexp.MustCompile(`(?m)^(-?[a-zA-Z][\w-]*) *= *`)
@@ -58,10 +63,17 @@ type indent struct {
 	length int
 }
 
+// maxExpressionDepth bounds inline-expression nesting. A Go stack overflow is a
+// fatal, unrecoverable error (unlike fluent.js, where deep nesting throws a
+// catchable RangeError), so the depth is capped deliberately; real translations
+// never nest anywhere near this.
+const maxExpressionDepth = 100
+
 // parser holds the cursor-based parser state.
 type parser struct {
 	source string
 	cursor int
+	depth  int
 }
 
 // NewResource parses an FTL source into a Resource. The runtime parser is
@@ -71,18 +83,10 @@ func NewResource(source string) *Resource {
 	res := &Resource{}
 
 	// Iterate over the beginnings of messages and terms to efficiently skip
-	// comments and recover from errors. Emulate (?<!\r) by rejecting matches
-	// whose preceding character is \r.
+	// comments and recover from errors.
 	locs := reMessageScan.FindAllStringSubmatchIndex(source, -1)
 	for _, loc := range locs {
-		idStart, idEnd := loc[2], loc[3]
-		matchStart := loc[0]
-		// (?<!\r): skip if the char right before the line start is \r. The (?m)
-		// ^ matches after a \n; a \r\n line ending would place \r before it.
-		if matchStart > 0 && source[matchStart-1] == '\r' {
-			continue
-		}
-		id := source[idStart:idEnd]
+		id := source[loc[2]:loc[3]]
 		p := &parser{source: source, cursor: loc[1]}
 		e, err := p.parseMessage(id)
 		if err != nil {
@@ -166,47 +170,33 @@ func (p *parser) match1(re *regexp.Regexp) (string, error) {
 	return g[1], nil
 }
 
-// scanTextRun consumes a TextElement run: RE_TEXT_RUN =
-// ((?:[^{}\n\r]|\r(?!\n))+). It does not match a \r immediately followed by \n.
-// Returns (run, true) and advances if at least one char was consumed.
-func (p *parser) scanTextRun() (string, bool) {
+// scanRun is the shared shape of RE_TEXT_RUN ((?:[^{}\n\r]|\r(?!\n))+) and
+// RE_STRING_RUN ((?:[^\\"\n\r]|\r(?!\n))*), parameterized by the two stop bytes.
+func (p *parser) scanRun(stop1, stop2 byte) string {
 	start := p.cursor
 	for p.cursor < len(p.source) {
 		c := p.source[p.cursor]
-		if c == '{' || c == '}' || c == '\n' {
+		if c == stop1 || c == stop2 || c == '\n' {
 			break
 		}
-		if c == '\r' {
-			// Allowed only if not followed by \n.
-			if p.cursor+1 < len(p.source) && p.source[p.cursor+1] == '\n' {
-				break
-			}
-		}
-		p.cursor++
-	}
-	if p.cursor == start {
-		return "", false
-	}
-	return p.source[start:p.cursor], true
-}
-
-// scanStringRun consumes a StringLiteral run: RE_STRING_RUN =
-// ((?:[^\\"\n\r]|\r(?!\n))*). May be empty.
-func (p *parser) scanStringRun() string {
-	start := p.cursor
-	for p.cursor < len(p.source) {
-		c := p.source[p.cursor]
-		if c == '\\' || c == '"' || c == '\n' {
+		if c == '\r' && p.cursor+1 < len(p.source) && p.source[p.cursor+1] == '\n' {
 			break
-		}
-		if c == '\r' {
-			if p.cursor+1 < len(p.source) && p.source[p.cursor+1] == '\n' {
-				break
-			}
 		}
 		p.cursor++
 	}
 	return p.source[start:p.cursor]
+}
+
+// scanTextRun consumes a TextElement run (RE_TEXT_RUN); ok is false when no
+// char was consumed.
+func (p *parser) scanTextRun() (run string, ok bool) {
+	run = p.scanRun('{', '}')
+	return run, run != ""
+}
+
+// scanStringRun consumes a StringLiteral run (RE_STRING_RUN).
+func (p *parser) scanStringRun() string {
+	return p.scanRun('\\', '"')
 }
 
 // --- grammar ---------------------------------------------------------------
@@ -228,7 +218,7 @@ func (p *parser) parseMessage(id string) (entry, error) {
 	if strings.HasPrefix(id, "-") {
 		return &term{id: id, value: value, attributes: attributes}, nil
 	}
-	return &Message{ID: id, Value: value, Attributes: attributes}, nil
+	return &Message{id: id, value: value, attributes: attributes}, nil
 }
 
 func (p *parser) parseAttributes() (map[string]Pattern, error) {
@@ -398,61 +388,61 @@ func (p *parser) parsePlaceable() (expression, error) {
 }
 
 func (p *parser) parseInlineExpression() (expression, error) {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxExpressionDepth {
+		return nil, &syntaxError{msg: "Expression nested too deeply"}
+	}
+
 	if p.charAt(p.cursor) == '{' {
 		return p.parsePlaceable()
 	}
 
-	if p.test(reReference) {
-		g, err := p.match(reReference)
+	g, err := p.match(reReference)
+	if err != nil {
+		return p.parseLiteral()
+	}
+	sigil := g[1]
+	name := g[2]
+	attr := g[3] // "" if absent
+
+	if sigil == "$" {
+		return &variableReference{name: name}, nil
+	}
+
+	if ok, _ := p.consumeToken(tokenParenOpen, false); ok {
+		args, err := p.parseArguments()
 		if err != nil {
 			return nil, err
 		}
-		sigil := g[1]
-		name := g[2]
-		attr := g[3] // "" if absent
-
-		if sigil == "$" {
-			return &variableReference{name: name}, nil
-		}
-
-		if ok, _ := p.consumeToken(tokenParenOpen, false); ok {
-			args, err := p.parseArguments()
-			if err != nil {
-				return nil, err
-			}
-
-			if sigil == "-" {
-				return &termReference{name: name, attr: attr, args: args}, nil
-			}
-
-			if reFunctionName.MatchString(name) {
-				return &functionReference{name: name, args: args}, nil
-			}
-
-			return nil, &syntaxError{msg: "Function names must be all upper-case"}
-		}
 
 		if sigil == "-" {
-			return &termReference{name: name, attr: attr}, nil
+			return &termReference{name: name, attr: attr, args: args}, nil
 		}
 
-		return &messageReference{name: name, attr: attr}, nil
+		if reFunctionName.MatchString(name) {
+			return &functionReference{name: name, args: args}, nil
+		}
+
+		return nil, &syntaxError{msg: "Function names must be all upper-case"}
 	}
 
-	return p.parseLiteral()
+	if sigil == "-" {
+		return &termReference{name: name, attr: attr}, nil
+	}
+
+	return &messageReference{name: name, attr: attr}, nil
 }
 
 func (p *parser) parseArguments() (callArguments, error) {
 	var args callArguments
 	for {
-		switch p.charAt(p.cursor) {
-		case ')':
+		if p.cursor >= len(p.source) {
+			return callArguments{}, &syntaxError{msg: "Unclosed argument list"}
+		}
+		if p.source[p.cursor] == ')' {
 			p.cursor++
 			return args, nil
-		case 0:
-			if p.cursor >= len(p.source) {
-				return callArguments{}, &syntaxError{msg: "Unclosed argument list"}
-			}
 		}
 
 		if err := p.parseArgument(&args); err != nil {
@@ -597,15 +587,11 @@ func (p *parser) parseStringLiteral() (*stringLiteral, error) {
 }
 
 func (p *parser) parseEscapeSequence() (string, error) {
-	if p.test(reStringEscape) {
-		return p.match1(reStringEscape)
+	if esc, err := p.match1(reStringEscape); err == nil {
+		return esc, nil
 	}
 
-	if p.test(reUnicodeEscape) {
-		g, err := p.match(reUnicodeEscape)
-		if err != nil {
-			return "", err
-		}
+	if g, err := p.match(reUnicodeEscape); err == nil {
 		hex := g[1]
 		if hex == "" {
 			hex = g[2]
@@ -614,18 +600,9 @@ func (p *parser) parseEscapeSequence() (string, error) {
 		if err != nil {
 			return "", &syntaxError{msg: "Invalid escape"}
 		}
-		// A \U escape can name up to 0xFFFFFF, but the largest valid Unicode
-		// scalar is U+10FFFF. Reject anything above it explicitly (rather than
-		// relying on Go's string(rune) silently yielding U+FFFD) so the intent is
-		// clear.
-		if codepoint > 0x10FFFF {
-			return "�", nil
-		}
-		if codepoint <= 0xd7ff || codepoint >= 0xe000 {
-			return string(rune(codepoint)), nil
-		}
-		// Lonely surrogate -> U+FFFD REPLACEMENT CHARACTER.
-		return "�", nil
+		// Invalid scalars (lone surrogates, > U+10FFFF) become U+FFFD via Go's
+		// rune conversion, matching fluent.js.
+		return string(rune(codepoint)), nil
 	}
 
 	return "", &syntaxError{msg: "Unknown escape sequence"}
@@ -652,7 +629,7 @@ func (p *parser) parseIndent() (indent, bool) {
 	}
 
 	// Regular text char: require at least one space of indent before it.
-	if p.cursor-1 >= 0 && p.source[p.cursor-1] == ' ' {
+	if p.charAt(p.cursor-1) == ' ' {
 		return p.makeIndent(p.source[start:p.cursor]), true
 	}
 

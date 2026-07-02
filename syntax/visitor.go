@@ -11,10 +11,6 @@ import (
 // true descends into the node's children via the generic walk; returning false
 // stops descent for that subtree (the implementation is then responsible for
 // any custom traversal, e.g. by calling Walk on selected children).
-//
-// This is the idiomatic Go shape of the reference's "add a visit{Type} method,
-// then call genericVisit to descend" pattern: switch on the concrete node type
-// inside Visit and return whether to auto-descend.
 type Visitor interface {
 	// Visit is called for a node. Return true to let Walk descend into the
 	// node's children automatically.
@@ -206,12 +202,7 @@ func transformChildren(t Transformer, node ast.Node) {
 	// The reference genericVisit also transforms the node's `span` property.
 	if sn, ok := node.(ast.SyntaxNode); ok {
 		if sp := sn.GetSpan(); sp != nil {
-			r := Transform(t, sp)
-			if r == nil {
-				sn.SetSpan(nil)
-			} else if newSpan, ok := r.(*ast.Span); ok {
-				sn.SetSpan(newSpan)
-			}
+			sn.SetSpan(transformNode(t, sp))
 		}
 	}
 }

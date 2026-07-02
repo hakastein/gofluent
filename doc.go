@@ -31,17 +31,16 @@
 //	b := fluent.NewBundle("en")
 //	b.AddResource(res)
 //	msg, _ := b.Message("hello")
-//	out, errs := b.FormatPattern(msg.Value, map[string]any{"name": "World"})
+//	out, err := b.FormatPattern(msg.Value(), map[string]any{"name": "World"})
 //
-// The resolver is fault-tolerant: it never panics. Missing references and
-// other problems are reported in the returned errors and rendered as
+// The resolver is fault-tolerant: missing references and other problems are
+// reported in the returned error (joined with errors.Join) and rendered as
 // fluent.js-style placeholders (for example {$name}); a best-effort string is
-// always returned.
+// always returned, even when the error is non-nil.
 //
 // By default placeables are wrapped in Unicode bidirectional isolation marks
 // (FSI/PDI). Disable this with [WithUseIsolating](false).
 //
-// A [Bundle] is safe for concurrent use: FormatPattern, Message, and the Add*
-// methods (AddFunction, AddResource, AddResourceOverriding) may run from
-// multiple goroutines at once.
+// A [Bundle] is safe for concurrent use: FormatPattern, Message, AddResource,
+// and AddResourceOverriding may run from multiple goroutines at once.
 package fluent

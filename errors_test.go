@@ -15,8 +15,9 @@ import (
 func TestErrorsAreCollected(t *testing.T) {
 	b := newTestBundle(t, "foo = {$one} and {$two}\n")
 
-	got, errs := format(t, b, "foo", nil)
+	got, err := format(t, b, "foo", nil)
 	assert.Equal(t, "{$one} and {$two}", got, "a best-effort string is returned despite errors")
+	errs := errList(err)
 	require.Len(t, errs, 2, "expected 2 reference errors")
 	require.ErrorIs(t, errs[0], fluent.ErrReference)
 	require.ErrorIs(t, errs[1], fluent.ErrReference)
@@ -38,8 +39,8 @@ func lolSource(depth int) string {
 func TestBillionLaughs(t *testing.T) {
 	b := newTestBundle(t, lolSource(9))
 
-	got, errs := format(t, b, "lolz", nil)
+	got, err := format(t, b, "lolz", nil)
 	assert.Equal(t, "{???}", got, "the placeable limit aborts expansion with a fallback")
-	require.Len(t, errs, 1, "expected a single range error")
-	require.ErrorIs(t, errs[0], fluent.ErrRange)
+	require.Len(t, errList(err), 1, "expected a single range error")
+	require.ErrorIs(t, err, fluent.ErrRange)
 }

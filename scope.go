@@ -16,16 +16,22 @@ type Scope struct {
 	dirty map[*patternElement]bool
 	// params is the dict of parameters passed to a termReference (nil when not
 	// inside a term).
-	params    map[string]Value
-	paramsSet bool
+	params map[string]Value
 	// placeables counts placeables resolved so far, to stop the Billion
 	// Laughs and Quadratic Blowup attacks.
 	placeables int
 }
 
 // Locale returns the locale of the bundle this resolution formats for. It is
-// the locale custom Value implementations should render with.
-func (s *Scope) Locale() string { return s.bundle.locale }
+// the locale custom Value implementations should render with. A nil scope
+// carries no locale context and returns "", so a Value.Format called outside a
+// resolution can query it without a nil-pointer panic.
+func (s *Scope) Locale() string {
+	if s == nil {
+		return ""
+	}
+	return s.bundle.locale
+}
 
 // newScope creates a Scope for the given bundle and args.
 func newScope(bundle *Bundle, args map[string]Value) *Scope {

@@ -23,43 +23,37 @@ var localeRe = regexp.MustCompile(
 	`(?i)^` + languageCodeRe + scriptCodeRe + `?` + regionCodeRe + `?` + variantCodeRe + `?$`,
 )
 
-// Locale is a parsed BCP-47 locale id. An empty (unset) field is represented by
-// the empty string. The Wellformed flag reports whether the id parsed at all.
-// Mirrors the fluent.js Locale class; in fluent.js absent fields are
-// `undefined`, here they are "".
-type Locale struct {
-	Wellformed bool
+// locale is a parsed BCP-47 locale id. An empty (unset) field is represented by
+// the empty string. The wellformed flag reports whether the id parsed at all.
+// Mirrors the fluent.js Locale class.
+type locale struct {
+	wellformed bool
 	Language   string
 	Script     string
 	Region     string
 	Variant    string
 }
 
-// NewLocale parses a locale id. Underscores are normalised to dashes; the
-// language is lower-cased, the script title-cased and the region upper-cased,
-// matching locale.ts.
-func NewLocale(locale string) *Locale {
-	l := &Locale{}
-	result := localeRe.FindStringSubmatch(strings.ReplaceAll(locale, "_", "-"))
+// newLocale parses a locale id. Underscores are normalised to dashes; the
+// language is lower-cased, the script's first letter upper-cased and the
+// region upper-cased, matching locale.ts.
+func newLocale(id string) *locale {
+	l := &locale{}
+	result := localeRe.FindStringSubmatch(strings.ReplaceAll(id, "_", "-"))
 	if result == nil {
-		l.Wellformed = false
+		l.wellformed = false
 		return l
 	}
 
-	// result[1]=language, result[2]=script, result[3]=region, result[4]=variant.
 	language, script, region, variant := result[1], result[2], result[3], result[4]
 
-	if language != "" {
-		l.Language = strings.ToLower(language)
-	}
+	l.Language = strings.ToLower(language)
 	if script != "" {
-		l.Script = strings.ToUpper(script[:1]) + strings.ToLower(script[1:])
+		l.Script = strings.ToUpper(script[:1]) + script[1:]
 	}
-	if region != "" {
-		l.Region = strings.ToUpper(region)
-	}
-	l.Variant = strings.ToLower(variant)
-	l.Wellformed = true
+	l.Region = strings.ToUpper(region)
+	l.Variant = variant
+	l.wellformed = true
 	return l
 }
 
@@ -68,7 +62,7 @@ func NewLocale(locale string) *Locale {
 // otherRange is true an empty field on other acts as a wildcard. Mirrors
 // Locale.matches in locale.ts (where undefined fields are the empty string
 // here).
-func (l *Locale) matches(other *Locale, thisRange, otherRange bool) bool {
+func (l *locale) matches(other *locale, thisRange, otherRange bool) bool {
 	return fieldMatches(l.Language, other.Language, thisRange, otherRange) &&
 		fieldMatches(l.Script, other.Script, thisRange, otherRange) &&
 		fieldMatches(l.Region, other.Region, thisRange, otherRange) &&
@@ -81,7 +75,7 @@ func fieldMatches(a, b string, aRange, bRange bool) bool {
 
 // String renders the locale id by joining the non-empty fields with dashes,
 // mirroring Locale.toString.
-func (l *Locale) String() string {
+func (l *locale) String() string {
 	parts := make([]string, 0, 4)
 	for _, p := range []string{l.Language, l.Script, l.Region, l.Variant} {
 		if p != "" {
@@ -91,23 +85,16 @@ func (l *Locale) String() string {
 	return strings.Join(parts, "-")
 }
 
-func (l *Locale) clearVariant() { l.Variant = "" }
-
-func (l *Locale) clearRegion() { l.Region = "" }
-
 // addLikelySubtags expands the locale using the curated likely-subtags table.
 // It returns true and mutates the receiver if an expansion was found, mirroring
 // Locale.addLikelySubtags.
-func (l *Locale) addLikelySubtags() bool {
-	newLocale := getLikelySubtagsMin(strings.ToLower(l.String()))
-	if newLocale != nil {
-		l.Language = newLocale.Language
-		l.Script = newLocale.Script
-		l.Region = newLocale.Region
-		l.Variant = newLocale.Variant
-		return true
+func (l *locale) addLikelySubtags() bool {
+	expanded := getLikelySubtagsMin(strings.ToLower(l.String()))
+	if expanded == nil {
+		return false
 	}
-	return false
+	*l = *expanded
+	return true
 }
 
 // likelySubtagsMin is the curated subset of the Unicode CLDR likelySubtags
@@ -147,16 +134,16 @@ var regionMatchingLangs = map[string]bool{
 	"lv": true, "nl": true, "pl": true, "ro": true, "ru": true,
 }
 
-// getLikelySubtagsMin returns the maximised Locale for the given lower-cased
+// getLikelySubtagsMin returns the maximised locale for the given lower-cased
 // locale id, or nil if no expansion is known. Mirrors getLikelySubtagsMin.
-func getLikelySubtagsMin(loc string) *Locale {
+func getLikelySubtagsMin(loc string) *locale {
 	if mapped, ok := likelySubtagsMin[loc]; ok {
-		return NewLocale(mapped)
+		return newLocale(mapped)
 	}
-	locale := NewLocale(loc)
-	if locale.Language != "" && regionMatchingLangs[locale.Language] {
-		locale.Region = strings.ToUpper(locale.Language)
-		return locale
+	l := newLocale(loc)
+	if regionMatchingLangs[l.Language] {
+		l.Region = strings.ToUpper(l.Language)
+		return l
 	}
 	return nil
 }

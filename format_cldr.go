@@ -20,9 +20,9 @@ func (cldrNumberFormatter) FormatNumber(locale string, n float64, opts NumberOpt
 // Unit/UnitDisplay/Type have no gocldr/number counterpart and are dropped.
 func numberOptions(opts NumberOptions) number.Options {
 	return number.Options{
-		Style:                    opts.Style,
+		Style:                    string(opts.Style),
 		Currency:                 opts.Currency,
-		CurrencyDisplay:          opts.CurrencyDisplay,
+		CurrencyDisplay:          string(opts.CurrencyDisplay),
 		UseGrouping:              opts.UseGrouping,
 		MinimumIntegerDigits:     opts.MinimumIntegerDigits,
 		MinimumFractionDigits:    opts.MinimumFractionDigits,
@@ -46,23 +46,22 @@ func (cldrDateTimeFormatter) FormatDateTime(locale string, t time.Time, opts Dat
 	return datetime.Format(locale, t, datetimeOptions(opts))
 }
 
-// datetimeOptions maps DateTimeOptions onto gocldr/datetime.Options. The two
-// structs mirror each other field-for-field.
+// datetimeOptions maps DateTimeOptions onto gocldr/datetime.Options.
 func datetimeOptions(opts DateTimeOptions) datetime.Options {
 	return datetime.Options{
 		Hour12:                 opts.Hour12,
-		Weekday:                opts.Weekday,
-		Era:                    opts.Era,
-		Year:                   opts.Year,
-		Month:                  opts.Month,
-		Day:                    opts.Day,
-		Hour:                   opts.Hour,
-		Minute:                 opts.Minute,
-		Second:                 opts.Second,
-		TimeZoneName:           opts.TimeZoneName,
-		DateStyle:              opts.DateStyle,
-		TimeStyle:              opts.TimeStyle,
-		DayPeriod:              opts.DayPeriod,
+		Weekday:                string(opts.Weekday),
+		Era:                    string(opts.Era),
+		Year:                   string(opts.Year),
+		Month:                  string(opts.Month),
+		Day:                    string(opts.Day),
+		Hour:                   string(opts.Hour),
+		Minute:                 string(opts.Minute),
+		Second:                 string(opts.Second),
+		TimeZoneName:           string(opts.TimeZoneName),
+		DateStyle:              string(opts.DateStyle),
+		TimeStyle:              string(opts.TimeStyle),
+		DayPeriod:              string(opts.DayPeriod),
 		FractionalSecondDigits: opts.FractionalSecondDigits,
 		Calendar:               opts.Calendar,
 		NumberingSystem:        opts.NumberingSystem,
@@ -99,10 +98,3 @@ func pluralOptions(opts NumberOptions) number.Options {
 		MaximumSignificantDigits: opts.MaximumSignificantDigits,
 	}
 }
-
-// Compile-time checks that the CLDR defaults satisfy the core interfaces.
-var (
-	_ NumberFormatter   = cldrNumberFormatter{}
-	_ DateTimeFormatter = cldrDateTimeFormatter{}
-	_ PluralRules       = cldrPluralRules{}
-)
