@@ -17,25 +17,11 @@ type marshalCtx struct {
 }
 
 // jsonMarshaler is implemented by every AST node. It produces the ordered list
-// of fields for the node, honoring the context options (e.g. whether spans are
-// included). The "type" discriminator and the trailing "span" field are added
-// by encodeObject; nodes only return their own intrinsic fields.
+// of the node's own intrinsic fields; the "type" discriminator and the
+// trailing "span" field are added by encodeObject.
 type jsonMarshaler interface {
-	jsonFields(ctx *marshalCtx) []jsonField
-}
-
-// encodeNode encodes any AST node (or nil) into JSON bytes using the supplied
-// context. nil values are encoded as JSON null.
-func encodeNode(v any, ctx *marshalCtx) ([]byte, error) {
-	switch n := v.(type) {
-	case nil:
-		return []byte("null"), nil
-	case jsonMarshaler:
-		return encodeObject(n, ctx)
-	default:
-		// Scalars, slices of scalars, etc.
-		return json.Marshal(v)
-	}
+	Node
+	jsonFields() []jsonField
 }
 
 // encodeObject writes an ordered JSON object for the given node, inserting the
@@ -45,15 +31,14 @@ func encodeObject(n jsonMarshaler, ctx *marshalCtx) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')
 
-	typeName := nodeType(n)
 	buf.WriteString(`"type":`)
-	tb, err := json.Marshal(typeName)
+	tb, err := json.Marshal(n.nodeTypeName())
 	if err != nil {
 		return nil, err
 	}
 	buf.Write(tb)
 
-	for _, f := range n.jsonFields(ctx) {
+	for _, f := range n.jsonFields() {
 		buf.WriteByte(',')
 		kb, err := json.Marshal(f.key)
 		if err != nil {
@@ -70,14 +55,17 @@ func encodeObject(n jsonMarshaler, ctx *marshalCtx) ([]byte, error) {
 
 	// Span goes last. Span itself is a node but is encoded inline here, not as
 	// part of jsonFields, because it is conditional and excluded from the Span
-	// node's own field list.
-	if sp := nodeSpan(n); sp != nil && ctx.withSpans {
-		buf.WriteString(`,"span":`)
-		sb, err := encodeObject(sp, ctx)
-		if err != nil {
-			return nil, err
+	// node's own field list. *Span is the one node that is not a SyntaxNode,
+	// which also stops the recursion here.
+	if sn, ok := n.(SyntaxNode); ok && ctx.withSpans {
+		if sp := sn.GetSpan(); sp != nil {
+			buf.WriteString(`,"span":`)
+			sb, err := encodeObject(sp, ctx)
+			if err != nil {
+				return nil, err
+			}
+			buf.Write(sb)
 		}
-		buf.Write(sb)
 	}
 
 	buf.WriteByte('}')
@@ -101,10 +89,13 @@ func encodeValue(v any, ctx *marshalCtx) ([]byte, error) {
 	}
 }
 
-// encodeSlice handles slices of node interfaces/pointers, encoding each element
-// as a node. Non-node slices and scalars fall through to json.Marshal.
+// encodeSlice handles slices of node interfaces/pointers (and the []any of
+// Annotation.Arguments), encoding each element as a value; a nil slice encodes
+// as []. Non-slice scalars fall through to json.Marshal.
 func encodeSlice(v any, ctx *marshalCtx) ([]byte, error) {
 	switch s := v.(type) {
+	case []any:
+		return encodeNodeSlice(s, ctx)
 	case []Entry:
 		return encodeNodeSlice(s, ctx)
 	case []PatternElement:

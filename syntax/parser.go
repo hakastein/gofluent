@@ -7,6 +7,13 @@ import (
 	"github.com/hakastein/gofluent/syntax/ast"
 )
 
+// maxExpressionDepth bounds inline-expression nesting. A Go stack overflow is a
+// fatal, unrecoverable error (unlike fluent.js, where deep nesting throws a
+// catchable RangeError), so the depth is capped deliberately; real translations
+// never nest anywhere near this. Exceeding it fails through the normal error
+// path, yielding Junk like any other syntax error.
+const maxExpressionDepth = 100
+
 var trailingWSRe = regexp.MustCompile(`[ \n\r]+$`)
 
 var functionNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_-]*$`)
@@ -37,16 +44,10 @@ func NewParser(opts ...Option) *Parser {
 	return p
 }
 
-// addSpan records a span on a node unless one is already present or spans are
-// disabled.
 func (p *Parser) addSpan(node ast.SyntaxNode, start, end int) {
-	if !p.withSpans {
-		return
+	if p.withSpans {
+		node.AddSpan(start, end)
 	}
-	if node.GetSpan() != nil {
-		return
-	}
-	node.AddSpan(start, end)
 }
 
 // Parse performs a full parse with junk recovery. It never returns an error;
@@ -91,9 +92,7 @@ func (p *Parser) Parse(source string) *ast.Resource {
 	}
 
 	res := &ast.Resource{Body: entries}
-	if p.withSpans {
-		res.AddSpan(0, ps.index)
-	}
+	p.addSpan(res, 0, ps.index)
 	return res
 }
 
@@ -125,11 +124,7 @@ func (p *Parser) getEntryOrJunk(ps *parserStream) ast.Entry {
 		}
 	}
 
-	pe, ok := err.(*ParseError)
-	if !ok {
-		// Should never happen; all parse errors are *ParseError.
-		panic(err)
-	}
+	pe := err.(*ParseError)
 
 	errorIndex := ps.index
 	ps.skipToNextEntryStart(entryStartPos)
@@ -140,9 +135,7 @@ func (p *Parser) getEntryOrJunk(ps *parserStream) ast.Entry {
 
 	slice := ps.slice(entryStartPos, nextEntryStart)
 	junk := &ast.Junk{Content: slice}
-	if p.withSpans {
-		junk.AddSpan(entryStartPos, nextEntryStart)
-	}
+	p.addSpan(junk, entryStartPos, nextEntryStart)
 	annot := &ast.Annotation{Code: pe.Code, Arguments: pe.Args, Message: pe.Message}
 	annot.AddSpan(errorIndex, errorIndex)
 	junk.AddAnnotation(annot)
@@ -150,7 +143,6 @@ func (p *Parser) getEntryOrJunk(ps *parserStream) ast.Entry {
 }
 
 func (p *Parser) getEntry(ps *parserStream) (ast.Entry, error) {
-	start := ps.index
 	var entry ast.Entry
 	var err error
 
@@ -174,7 +166,6 @@ func (p *Parser) getEntry(ps *parserStream) (ast.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.addSpan(entry, start, ps.index)
 	return entry, nil
 }
 
@@ -182,7 +173,7 @@ func (p *Parser) getComment(ps *parserStream) (ast.BaseComment, error) {
 	start := ps.index
 	// 0 - comment, 1 - group comment, 2 - resource comment
 	level := -1
-	var content strings.Builder
+	var content []uint16
 
 	for {
 		i := -1
@@ -208,12 +199,13 @@ func (p *Parser) getComment(ps *parserStream) (ast.BaseComment, error) {
 				if !ok {
 					break
 				}
-				content.WriteRune(ch)
+				// ch may be a lone surrogate half of an astral character.
+				content = appendRuneUTF16(content, ch)
 			}
 		}
 
 		if ps.isNextLineComment(level) {
-			content.WriteRune(ps.currentChar())
+			content = appendRuneUTF16(content, ps.currentChar())
 			ps.next()
 		} else {
 			break
@@ -221,13 +213,14 @@ func (p *Parser) getComment(ps *parserStream) (ast.BaseComment, error) {
 	}
 
 	var comment ast.BaseComment
+	text := decodeUTF16(content)
 	switch level {
 	case 0:
-		comment = &ast.Comment{Content: content.String()}
+		comment = &ast.Comment{Content: text}
 	case 1:
-		comment = &ast.GroupComment{Content: content.String()}
+		comment = &ast.GroupComment{Content: text}
 	default:
-		comment = &ast.ResourceComment{Content: content.String()}
+		comment = &ast.ResourceComment{Content: text}
 	}
 	p.addSpan(comment, start, ps.index)
 	return comment, nil
@@ -462,19 +455,13 @@ func (p *Parser) getNumber(ps *parserStream) (*ast.NumberLiteral, error) {
 
 	if ps.currentChar() == '-' {
 		ps.next()
-		digits, err := p.getDigits(ps)
-		if err != nil {
-			return nil, err
-		}
 		value.WriteByte('-')
-		value.WriteString(digits)
-	} else {
-		digits, err := p.getDigits(ps)
-		if err != nil {
-			return nil, err
-		}
-		value.WriteString(digits)
 	}
+	digits, err := p.getDigits(ps)
+	if err != nil {
+		return nil, err
+	}
+	value.WriteString(digits)
 
 	if ps.currentChar() == '.' {
 		ps.next()
@@ -583,63 +570,62 @@ func (p *Parser) getIndent(ps *parserStream, value string, start int) *indent {
 func (p *Parser) dedent(elements []any, commonIndent int) []ast.PatternElement {
 	var trimmed []ast.PatternElement
 
+	// Adjacent text segments (TextElements and dedented indents) merge into a
+	// single TextElement. Segments accumulate in a strings.Builder and flush
+	// once, so a run of N segments costs O(N) rather than O(N^2) from repeated
+	// string concatenation.
+	var run strings.Builder
+	runActive := false
+	runStart, runEnd := 0, 0
+	flush := func() {
+		if !runActive {
+			return
+		}
+		te := &ast.TextElement{Value: run.String()}
+		if p.withSpans {
+			te.AddSpan(runStart, runEnd)
+		}
+		trimmed = append(trimmed, te)
+		run.Reset()
+		runActive = false
+	}
+
 	for _, element := range elements {
 		if pl, ok := element.(*ast.Placeable); ok {
+			flush()
 			trimmed = append(trimmed, pl)
 			continue
 		}
 
-		// Resolve the current element into value/span for joining.
-		if ind, ok := element.(*indent); ok {
-			// Strip common indent. Indent text is ASCII, so byte slicing
-			// matches the UTF-16 slice used by the reference.
-			keep := len(ind.value) - commonIndent
+		var val string
+		var segStart, segEnd int
+		switch e := element.(type) {
+		case *indent:
+			keep := len(e.value) - commonIndent
 			if keep < 0 {
 				keep = 0
 			}
-			ind.value = ind.value[:keep]
-			if len(ind.value) == 0 {
+			e.value = e.value[:keep]
+			if len(e.value) == 0 {
 				continue
 			}
+			val = e.value
+			segStart, segEnd = e.span.Start, e.span.End
+		case *ast.TextElement:
+			val = e.Value
+			if sp := e.GetSpan(); sp != nil {
+				segStart, segEnd = sp.Start, sp.End
+			}
 		}
 
-		var prev ast.PatternElement
-		if len(trimmed) > 0 {
-			prev = trimmed[len(trimmed)-1]
+		if !runActive {
+			runActive = true
+			runStart = segStart
 		}
-		if prevText, ok := prev.(*ast.TextElement); ok {
-			// Join adjacent TextElements.
-			var elemVal string
-			var elemEnd int
-			switch e := element.(type) {
-			case *ast.TextElement:
-				elemVal = e.Value
-				if e.GetSpan() != nil {
-					elemEnd = e.GetSpan().End
-				}
-			case *indent:
-				elemVal = e.value
-				elemEnd = e.span.End
-			}
-			sum := &ast.TextElement{Value: prevText.Value + elemVal}
-			if p.withSpans {
-				sum.AddSpan(prevText.GetSpan().Start, elemEnd)
-			}
-			trimmed[len(trimmed)-1] = sum
-			continue
-		}
-
-		if ind, ok := element.(*indent); ok {
-			te := &ast.TextElement{Value: ind.value}
-			if p.withSpans {
-				te.AddSpan(ind.span.Start, ind.span.End)
-			}
-			trimmed = append(trimmed, te)
-			continue
-		}
-
-		trimmed = append(trimmed, element.(ast.PatternElement))
+		run.WriteString(val)
+		runEnd = segEnd
 	}
+	flush()
 
 	// Trim trailing whitespace from the Pattern.
 	if len(trimmed) > 0 {
@@ -680,6 +666,10 @@ func (p *Parser) getEscapeSequence(ps *parserStream) (string, error) {
 		return p.getUnicodeEscapeSequence(ps, next, 4)
 	case 'U':
 		return p.getUnicodeEscapeSequence(ps, next, 6)
+	case eof:
+		// Mirror fluent.js: ps.currentChar() is `undefined` at EOF and renders
+		// as the literal string "undefined".
+		return "", newParseError("E0025", "undefined")
 	default:
 		return "", newParseError("E0025", string(next))
 	}
@@ -787,6 +777,12 @@ func (p *Parser) getExpression(ps *parserStream) (ast.Expression, error) {
 // getInlineExpression returns an InlineExpression. A Placeable also satisfies
 // InlineExpression in this model.
 func (p *Parser) getInlineExpression(ps *parserStream) (ast.InlineExpression, error) {
+	ps.depth++
+	defer func() { ps.depth-- }()
+	if ps.depth > maxExpressionDepth {
+		return nil, newParseError("E0028")
+	}
+
 	start := ps.index
 
 	if ps.currentChar() == '{' {

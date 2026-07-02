@@ -29,7 +29,7 @@ func firstStringLiteral(t *testing.T, src string) *ast.StringLiteral {
 
 // TestStringLiteralParseHexEscape checks decoding of unicode escapes through the
 // public StringLiteral.Parse API, including out-of-range code points which must
-// collapse to U+FFFD (matching the reference's string([]rune{...}) behavior).
+// collapse to U+FFFD.
 func TestStringLiteralParseHexEscape(t *testing.T) {
 	tests := []struct {
 		name string
@@ -47,6 +47,35 @@ func TestStringLiteralParseHexEscape(t *testing.T) {
 			assert.Equal(t, tc.want, sl.Parse())
 		})
 	}
+}
+
+// A sign is not a hex digit: a sequence like \u+123 is not a valid escape and
+// stays verbatim, matching the reference's hex-digits-only pattern.
+func TestStringLiteralParseRejectsSignedEscape(t *testing.T) {
+	for _, raw := range []string{`\u+123`, `\U-12345`} {
+		sl := &ast.StringLiteral{Value: raw}
+		assert.Equal(t, raw, sl.Parse())
+	}
+}
+
+// TestE0025AtEOF pins the E0025 (unknown escape) diagnostic at EOF to the
+// reference behavior: fluent.js interpolates ps.currentChar(), which is
+// `undefined` when the source ends right after the backslash.
+func TestE0025AtEOF(t *testing.T) {
+	res := syntax.Parse(`k = {"\`)
+
+	var ann *ast.Annotation
+	for _, e := range res.Body {
+		if j, ok := e.(*ast.Junk); ok {
+			for _, a := range j.Annotations {
+				if a.Code == "E0025" {
+					ann = a
+				}
+			}
+		}
+	}
+	require.NotNil(t, ann, "expected an E0025 annotation")
+	assert.Contains(t, ann.Message, `\undefined`)
 }
 
 // TestE0026AtEOF pins the E0026 (invalid unicode escape) diagnostic to the

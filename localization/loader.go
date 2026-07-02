@@ -15,8 +15,7 @@ import (
 //	FSLoader(fsys, "{locale}/{resource}.ftl")
 //
 // loads "de/main.ftl" for locale "de" and resource "main". Any error from
-// fs.ReadFile (such as a missing file) is propagated to the caller, which
-// treats it as a non-fatal, skipped resource.
+// fs.ReadFile (such as a missing file) is propagated to the caller.
 func FSLoader(fsys fs.FS, pathPattern string) ResourceLoader {
 	return func(locale, resourceID string) (string, error) {
 		path := strings.NewReplacer("{locale}", locale, "{resource}", resourceID).Replace(pathPattern)

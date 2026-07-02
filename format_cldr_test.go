@@ -17,14 +17,6 @@ import (
 // the option mapping onto github.com/hakastein/gocldr; the golden strings match
 // Node's Intl.* (CLDR 46), as validated in the gocldr module itself.
 
-// cldrBundle builds a non-isolating bundle for locale and loads src.
-func cldrBundle(t *testing.T, locale, src string) *fluent.Bundle {
-	t.Helper()
-	b := fluent.NewBundle(locale, fluent.WithUseIsolating(false))
-	require.Empty(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
-	return b
-}
-
 func TestCLDRNumberFormatting(t *testing.T) {
 	// CLDR group/symbol characters emitted by gocldr/number (matching Intl):
 	// French uses a narrow no-break space (U+202F), Russian a no-break space
@@ -33,11 +25,19 @@ func TestCLDRNumberFormatting(t *testing.T) {
 		narrowNBSP = " "
 		nbsp       = " "
 	)
+	// style and currency are outside fluent.js's FTL option allowlist, so the
+	// percent/currency cases carry them on a Number argument built in code.
+	percent := func(n float64) *fluent.Number {
+		return fluent.NewNumber(n, fluent.NumberOptions{Style: fluent.StylePercent})
+	}
+	currency := func(n float64, code string) *fluent.Number {
+		return fluent.NewNumber(n, fluent.NumberOptions{Style: fluent.StyleCurrency, Currency: code})
+	}
 	cases := []struct {
 		name   string
 		locale string
 		opts   string // extra named options after $n
-		n      float64
+		n      any    // float64 or a *fluent.Number carrying options
 		want   string
 	}{
 		{"en grouping", "en", "", 1234.5, "1,234.5"},
@@ -48,15 +48,15 @@ func TestCLDRNumberFormatting(t *testing.T) {
 		{"min fraction", "en", ", minimumFractionDigits: 2", 1234, "1,234.00"},
 		{"max fraction", "en", ", maximumFractionDigits: 1", 1.239, "1.2"},
 		// Intl's default maximumFractionDigits for percent is 0, so 12.5% rounds.
-		{"percent", "en", `, style: "percent"`, 0.125, "13%"},
-		{"percent maxfrac", "en", `, style: "percent", maximumFractionDigits: 1`, 0.125, "12.5%"},
-		{"currency usd", "en", `, style: "currency", currency: "USD"`, 1234, "$1,234.00"},
-		{"currency eur de", "de", `, style: "currency", currency: "EUR"`, 1234.5, "1.234,50" + nbsp + "€"},
-		{"currency rub ru", "ru", `, style: "currency", currency: "RUB"`, 1234, "1" + nbsp + "234,00" + nbsp + "₽"},
+		{"percent", "en", "", percent(0.125), "13%"},
+		{"percent maxfrac", "en", ", maximumFractionDigits: 1", percent(0.125), "12.5%"},
+		{"currency usd", "en", "", currency(1234, "USD"), "$1,234.00"},
+		{"currency eur de", "de", "", currency(1234.5, "EUR"), "1.234,50" + nbsp + "€"},
+		{"currency rub ru", "ru", "", currency(1234, "RUB"), "1" + nbsp + "234,00" + nbsp + "₽"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			b := cldrBundle(t, c.locale, "v = { NUMBER($n"+c.opts+") }\n")
+			b := newLocaleBundle(t, c.locale, "v = { NUMBER($n"+c.opts+") }\n")
 			got, errs := format(t, b, "v", map[string]any{"n": c.n})
 			require.Empty(t, errs)
 			assert.Equal(t, c.want, got)
@@ -88,7 +88,7 @@ func TestCLDRPluralCardinalSelect(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("%s_%v", c.locale, c.n), func(t *testing.T) {
-			b := cldrBundle(t, c.locale, src)
+			b := newLocaleBundle(t, c.locale, src)
 			got, errs := format(t, b, "v", map[string]any{"n": c.n})
 			require.Empty(t, errs)
 			assert.Equal(t, c.want, got)
@@ -114,8 +114,8 @@ func TestCLDRPluralOrdinalSelect(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("en_%v", c.n), func(t *testing.T) {
-			b := cldrBundle(t, "en", src)
-			arg := fluent.NewNumber(c.n, fluent.NumberOptions{Type: "ordinal"})
+			b := newLocaleBundle(t, "en", src)
+			arg := fluent.NewNumber(c.n, fluent.NumberOptions{Type: fluent.Ordinal})
 			got, errs := format(t, b, "v", map[string]any{"n": arg})
 			require.Empty(t, errs)
 			assert.Equal(t, c.want, got)
@@ -141,7 +141,7 @@ func TestCLDRDateTimeFormatting(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			b := cldrBundle(t, c.locale, "v = { DATETIME($d, "+c.opts+") }\n")
+			b := newLocaleBundle(t, c.locale, "v = { DATETIME($d, "+c.opts+") }\n")
 			got, errs := format(t, b, "v", map[string]any{"d": ts})
 			require.Empty(t, errs)
 			assert.Equal(t, c.want, got)
@@ -149,13 +149,16 @@ func TestCLDRDateTimeFormatting(t *testing.T) {
 	}
 }
 
-// TestCLDRDateTimeTimeZone verifies the timeZone option is applied via
+// TestCLDRDateTimeTimeZone verifies the TimeZone option is applied via
 // time.LoadLocation: 14:09 UTC becomes 09:09 in America/New_York (EST, UTC-5).
+// timeZone is outside fluent.js's FTL option allowlist, so it rides on the
+// DateTime argument.
 func TestCLDRDateTimeTimeZone(t *testing.T) {
 	ts := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
-	b := cldrBundle(t, "en",
-		`v = { DATETIME($d, hour: "2-digit", minute: "2-digit", hour12: 0, timeZone: "America/New_York") }`+"\n")
-	got, errs := format(t, b, "v", map[string]any{"d": ts})
+	b := newLocaleBundle(t, "en",
+		`v = { DATETIME($d, hour: "2-digit", minute: "2-digit", hour12: 0) }`+"\n")
+	arg := fluent.NewDateTime(ts, fluent.DateTimeOptions{TimeZone: "America/New_York"})
+	got, errs := format(t, b, "v", map[string]any{"d": arg})
 	require.Empty(t, errs)
 	assert.Equal(t, "09:09", got)
 }

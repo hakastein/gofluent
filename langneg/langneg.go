@@ -1,6 +1,6 @@
 // Package langneg is a faithful Go port of @fluent/langneg. It negotiates an
 // ordered list of supported locales out of a user's requested locales and an
-// application's available locales, using the Fluent variant of the BCP-4647
+// application's available locales, using the Fluent variant of the RFC 4647
 // Extended Filtering algorithm plus a curated likely-subtags table.
 //
 // The port is dependency-free (it does not use golang.org/x/text); it carries
@@ -32,18 +32,6 @@ const (
 	// requires a non-empty defaultLocale as the last resort.
 	Lookup
 )
-
-// String renders the strategy using the fluent.js option names.
-func (s Strategy) String() string {
-	switch s {
-	case Matching:
-		return "matching"
-	case Lookup:
-		return "lookup"
-	default:
-		return "filtering"
-	}
-}
 
 // ErrLookupNeedsDefault is returned by NegotiateLanguages when the Lookup
 // strategy is used without a defaultLocale.
@@ -81,17 +69,18 @@ var acceptedEntryRe = regexp.MustCompile(`(?:^|,)([^,;]+)(?:;\s*[qQ]\s*=([^,;]+)
 // q-aware implementation). An empty header yields nil.
 func AcceptedLanguages(header string) []string {
 	var entries []langQ
-	for i, m := range acceptedEntryRe.FindAllStringSubmatchIndex(header, -1) {
+	for _, m := range acceptedEntryRe.FindAllStringSubmatchIndex(header, -1) {
 		// m[2]:m[3] is the lang group, m[4]:m[5] is the q value group.
 		lang := strings.TrimSpace(header[m[2]:m[3]])
 		q := 1.0
 		if m[4] >= 0 {
 			q = parseQ(header[m[4]:m[5]])
 		}
-		entries = append(entries, langQ{lang: lang, q: q, index: i})
+		entries = append(entries, langQ{lang: lang, q: q})
 	}
 
-	stableSortByQ(entries)
+	// Descending q; SliceStable keeps header order for equal weights.
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].q > entries[j].q })
 
 	if len(entries) == 0 {
 		return nil
@@ -120,21 +109,8 @@ func parseQ(token string) float64 {
 	return v
 }
 
-// langQ is one parsed Accept-Language entry: its locale id, q weight, and its
-// ordinal position in the header (used as a stable tiebreaker).
+// langQ is one parsed Accept-Language entry: its locale id and q weight.
 type langQ struct {
-	lang  string
-	q     float64
-	index int
-}
-
-// stableSortByQ sorts entries by descending q, keeping header order for equal
-// weights.
-func stableSortByQ(entries []langQ) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].q == entries[j].q {
-			return entries[i].index < entries[j].index
-		}
-		return entries[i].q > entries[j].q
-	})
+	lang string
+	q    float64
 }

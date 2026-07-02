@@ -1,5 +1,7 @@
 package fluent
 
+import "sort"
+
 // The runtime AST: the compact shapes produced by the runtime parser
 // (resource.go) and consumed by the resolver — not the syntax AST. Only
 // Pattern and Message are part of the public API; everything else is sealed
@@ -127,11 +129,37 @@ type namedArgument struct {
 }
 
 // Message is a compiled message: its id, an optional value, and attributes.
-// Treat it as read-only; it is shared by all formatting calls on the Bundle.
+// It is immutable — a Bundle shares one Message across every concurrent
+// FormatPattern call — so its state is reached only through accessors, never
+// mutable fields.
 type Message struct {
-	ID         string
-	Value      Pattern // nil when the message has only attributes
-	Attributes map[string]Pattern
+	id         string
+	value      Pattern // nil when the message has only attributes
+	attributes map[string]Pattern
+}
+
+// ID returns the message identifier.
+func (m *Message) ID() string { return m.id }
+
+// Value returns the message's value pattern, or nil when the message has only
+// attributes. Pass it to Bundle.FormatPattern to render it.
+func (m *Message) Value() Pattern { return m.value }
+
+// Attribute returns the pattern of the named attribute and whether it exists.
+func (m *Message) Attribute(name string) (Pattern, bool) {
+	p, ok := m.attributes[name]
+	return p, ok
+}
+
+// AttributeNames returns the message's attribute names, sorted for
+// deterministic iteration. The returned slice is a fresh copy.
+func (m *Message) AttributeNames() []string {
+	names := make([]string, 0, len(m.attributes))
+	for name := range m.attributes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // term is the private counterpart of Message (its id starts with "-").

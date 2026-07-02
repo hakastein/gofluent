@@ -112,6 +112,18 @@ func TestNegotiateMatching(t *testing.T) {
 	assert.Equal(t, []string{"fr", "en"}, got, "matching")
 }
 
+// Variant and script tails keep their original case (locale.ts lowers only the
+// language): "MacOS" does not match the requested "macos" exactly, so the
+// variant-range pass picks the first available instead.
+func TestNegotiateVariantCasePreserved(t *testing.T) {
+	got, err := langneg.NegotiateLanguages(
+		[]string{"fr-Latn-FR-macos"},
+		[]string{"fr-FR-windows", "fr-FR-MacOS"},
+		"", langneg.Matching)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"fr-FR-windows"}, got)
+}
+
 func TestNegotiateLookup(t *testing.T) {
 	got, err := langneg.NegotiateLanguages(
 		[]string{"fr-FR", "en"},
@@ -148,24 +160,5 @@ func TestAcceptedLanguages(t *testing.T) {
 	for _, c := range cases {
 		got := langneg.AcceptedLanguages(c.header)
 		assert.Equalf(t, c.want, got, "AcceptedLanguages(%q)", c.header)
-	}
-}
-
-func TestLocaleParsing(t *testing.T) {
-	cases := []struct {
-		in   string
-		want langneg.Locale
-	}{
-		{"en", langneg.Locale{Wellformed: true, Language: "en"}},
-		{"lij", langneg.Locale{Wellformed: true, Language: "lij"}},
-		{"en-Latn", langneg.Locale{Wellformed: true, Language: "en", Script: "Latn"}},
-		{"en-Latn-US", langneg.Locale{Wellformed: true, Language: "en", Script: "Latn", Region: "US"}},
-		{"en-Latn-US-macos", langneg.Locale{Wellformed: true, Language: "en", Script: "Latn", Region: "US", Variant: "macos"}},
-		{"en-US", langneg.Locale{Wellformed: true, Language: "en", Region: "US"}},
-		{"lij-FA-linux", langneg.Locale{Wellformed: true, Language: "lij", Region: "FA", Variant: "linux"}},
-	}
-	for _, c := range cases {
-		got := langneg.NewLocale(c.in)
-		assert.Equalf(t, c.want, *got, "NewLocale(%q)", c.in)
 	}
 }

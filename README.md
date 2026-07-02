@@ -33,7 +33,7 @@ Requires Go 1.23 or newer.
 This example renders one Russian message across the plural categories Russian
 actually uses — **one** (1, 21), **few** (2), **many** (5) — plus a grouped
 number and a localized date. It is verified by a runnable example
-(`ExampleBundle_pluralRussian` in [`example_test.go`](example_test.go)), so the
+(`Example_localizationRussian` in [`example_test.go`](example_test.go)), so the
 output below is exactly what `go test` asserts.
 
 ```go
@@ -46,6 +46,7 @@ import (
 	_ "github.com/hakastein/gocldr/locales/ru" // Russian number + date data (see "Locale data")
 
 	fluent "github.com/hakastein/gofluent"
+	"github.com/hakastein/gofluent/localization"
 )
 
 const src = `
@@ -66,19 +67,21 @@ func main() {
 	b := fluent.NewBundle("ru", fluent.WithUseIsolating(false))
 	b.AddResource(fluent.NewResource(src))
 
-	apples, _ := b.Message("apples")
+	// localization is the high-level entry point: wrap one or more bundles and
+	// render messages by id with FormatValue. (Bundle.FormatPattern below is the
+	// low-level API it is built on.)
+	l10n := localization.New(b)
+
 	for _, n := range []int{1, 2, 5, 21} {
-		out, _ := b.FormatPattern(apples.Value, map[string]any{"n": n})
+		out, _ := l10n.FormatValue("apples", map[string]any{"n": n})
 		fmt.Println(out)
 	}
 
-	total, _ := b.Message("total")
-	out, _ := b.FormatPattern(total.Value, map[string]any{"total": 1234567})
+	out, _ := l10n.FormatValue("total", map[string]any{"total": 1234567})
 	fmt.Println(out)
 
-	updated, _ := b.Message("updated")
 	at := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
-	out, _ = b.FormatPattern(updated.Value, map[string]any{"at": at})
+	out, _ = l10n.FormatValue("updated", map[string]any{"at": at})
 	fmt.Println(out)
 }
 ```
@@ -120,17 +123,23 @@ with an FTL whose select uses English's `[one]`/`*[other]` categories.
    ECMA-402 `Intl.*` (and therefore fluent.js). No opt-in step is needed. To
    override the default for a bundle, pass your own implementation through
    `fluent.WithPluralRules` / `WithNumberFormatter` / `WithDateTimeFormatter`.
+6. **`localization.New(bundle)`** is the high-level entry point. Wrap one or
+   more bundles and render messages by id with `FormatValue(id, args)`; passing
+   several bundles gives an ordered fallback chain. `Bundle.FormatPattern` is
+   the low-level primitive it is built on.
 
 CLDR-backed formatting is the default, so a bare `fluent.NewBundle("en")`
 already formats numbers, dates, and plurals locale-aware. The locale *data* that
 drives real number/date rendering is still opt-in — see "Locale data" below.
 
-The resolver is **fault-tolerant**: `FormatPattern` never panics. It returns a
-best-effort string together with the errors it encountered — missing references
-and other problems render as fluent.js-style placeholders (for example
-`{$name}`) and come back classified by the `ErrReference` / `ErrRange` /
-`ErrType` sentinels (`errors.Is`). A `Bundle` is also safe for concurrent use
-across all of its read and `Add*` methods.
+The resolver is **fault-tolerant**: `FormatPattern` (and `FormatValue`) always
+returns a best-effort string together with a single `error` that joins every
+problem it encountered (`errors.Join`) — missing references and other problems
+render as fluent.js-style placeholders (for example `{$name}`), and a non-nil
+error still comes with usable output. Classify it with `errors.Is` against the
+`ErrReference` / `ErrRange` / `ErrType` sentinels, or recover the full list via
+the joined error's `Unwrap() []error`. A `Bundle` is also safe for concurrent
+use across its read and `Add*` methods.
 
 ## Locale data
 
