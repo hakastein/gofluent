@@ -15,7 +15,7 @@ import (
 func mustBundle(t *testing.T, locale, source string) *fluent.Bundle {
 	t.Helper()
 	b := fluent.NewBundle(locale)
-	require.Emptyf(t, b.AddResource(fluent.NewResource(source)), "add errors for %s", locale)
+	require.NoErrorf(t, b.AddResource(fluent.NewResource(source)), "add errors for %s", locale)
 	return b
 }
 
@@ -32,25 +32,24 @@ shared = Shared en
 	loc := localization.New([]*fluent.Bundle{de, en})
 
 	// "known" exists only in en -> falls through to en.
-	got, errs := loc.FormatValue("known", nil)
+	got, err := loc.FormatValue("known", nil)
 	assert.Equal(t, "Hello from en", got, "known")
-	assert.Empty(t, errs, "known errs")
+	assert.NoError(t, err, "known errs")
 
 	// "known-de" exists in de (highest priority) -> de wins.
-	got, errs = loc.FormatValue("known-de", nil)
+	got, err = loc.FormatValue("known-de", nil)
 	assert.Equal(t, "Hallo aus de", got, "known-de")
-	assert.Empty(t, errs, "known-de errs")
+	assert.NoError(t, err, "known-de errs")
 
 	// "shared" exists in both -> de wins (first in chain).
 	got, _ = loc.FormatValue("shared", nil)
 	assert.Equal(t, "Geteilt de", got, "shared")
 
 	// Totally missing -> returns the id plus an error.
-	got, errs = loc.FormatValue("nope", nil)
+	got, err = loc.FormatValue("nope", nil)
 	assert.Equal(t, "nope", got, "missing id returned value")
-	require.Len(t, errs, 1, "missing id errs")
 	var notFound *localization.NotFoundError
-	assert.ErrorAs(t, errs[0], &notFound, "missing id err type")
+	assert.ErrorAs(t, err, &notFound, "missing id err type")
 }
 
 func TestAttributeAccess(t *testing.T) {
@@ -61,18 +60,18 @@ login = Sign in
 `)
 	loc := localization.New([]*fluent.Bundle{en})
 
-	got, errs := loc.FormatValue("login.title", nil)
+	got, err := loc.FormatValue("login.title", nil)
 	assert.Equal(t, "Click to sign in", got, "login.title")
-	assert.Empty(t, errs, "login.title errs")
+	assert.NoError(t, err, "login.title errs")
 
 	// Value access on the same message.
 	got, _ = loc.FormatValue("login", nil)
 	assert.Equal(t, "Sign in", got, "login")
 
 	// Missing attribute -> id returned plus NotFoundError.
-	got, errs = loc.FormatValue("login.missing", nil)
+	got, err = loc.FormatValue("login.missing", nil)
 	assert.Equal(t, "login.missing", got, "login.missing value")
-	assert.Len(t, errs, 1, "login.missing errs")
+	assert.Error(t, err, "login.missing errs")
 }
 
 func TestAttributeFallsThrough(t *testing.T) {
@@ -84,17 +83,17 @@ greeting = Hello
 `)
 	loc := localization.New([]*fluent.Bundle{de, en})
 
-	got, errs := loc.FormatValue("greeting.tooltip", nil)
+	got, err := loc.FormatValue("greeting.tooltip", nil)
 	assert.Equal(t, "A friendly greeting", got, "greeting.tooltip want en attribute")
-	assert.Empty(t, errs, "greeting.tooltip errs")
+	assert.NoError(t, err, "greeting.tooltip errs")
 }
 
 func TestFormatValueWithArgs(t *testing.T) {
 	en := mustBundle(t, "en", `welcome = Welcome, { $name }!`)
 	loc := localization.New([]*fluent.Bundle{en})
-	got, errs := loc.FormatValue("welcome", map[string]any{"name": "Mary"})
+	got, err := loc.FormatValue("welcome", map[string]any{"name": "Mary"})
 	assert.Equal(t, "Welcome, ⁨Mary⁩!", got, "welcome")
-	assert.Empty(t, errs, "welcome errs")
+	assert.NoError(t, err, "welcome errs")
 }
 
 func TestFormatMessage(t *testing.T) {
@@ -104,16 +103,15 @@ btn = Save
 `)
 	loc := localization.New([]*fluent.Bundle{en})
 
-	msg, errs := loc.FormatMessage("btn", nil)
+	msg, err := loc.FormatMessage("btn", nil)
 	assert.Equal(t, "Save", msg.Value, "value")
 	assert.Equal(t, "Save the document", msg.Attributes["title"], "attrs[title]")
-	assert.Empty(t, errs, "unexpected errs")
+	assert.NoError(t, err, "unexpected errs")
 
-	msg, errs = loc.FormatMessage("ghost", nil)
+	msg, err = loc.FormatMessage("ghost", nil)
 	assert.Equal(t, "ghost", msg.Value, "missing id is returned as the value")
-	require.Len(t, errs, 1, "ghost errs")
 	var notFound *localization.NotFoundError
-	assert.ErrorAs(t, errs[0], &notFound, "ghost err type")
+	assert.ErrorAs(t, err, &notFound, "ghost err type")
 }
 
 // TestIntegrationFSNegotiation exercises the full path: an in-memory fs.FS
@@ -125,14 +123,14 @@ func TestIntegrationFSNegotiation(t *testing.T) {
 		"en/main.ftl": {Data: []byte("hello = Hello\nshared = Shared\nonly-en = Only English\n")},
 	}
 
-	loc, errs := localization.NewFromLocales(localization.Config{
+	loc, err := localization.NewFromLocales(localization.Config{
 		Requested: []string{"de-AT", "en-US"},
 		Available: []string{"de", "en"},
 		Default:   "en",
 		Resources: []string{"main"},
 		Loader:    localization.FSLoader(fsys, "{locale}/{resource}.ftl"),
 	})
-	require.Empty(t, errs, "NewFromLocales errors")
+	require.NoError(t, err, "NewFromLocales errors")
 
 	// Negotiation should produce the chain [de, en].
 	bundles := loc.Bundles()
@@ -146,9 +144,9 @@ func TestIntegrationFSNegotiation(t *testing.T) {
 	got, _ := loc.FormatValue("shared", nil)
 	assert.Equal(t, "Geteilt", got, "shared")
 	// "only-en" -> falls through to en.
-	got, errs = loc.FormatValue("only-en", nil)
+	got, err = loc.FormatValue("only-en", nil)
 	assert.Equal(t, "Only English", got, "only-en")
-	assert.Empty(t, errs, "only-en errs")
+	assert.NoError(t, err, "only-en errs")
 	// "hello-de" -> only in de.
 	got, _ = loc.FormatValue("hello-de", nil)
 	assert.Equal(t, "Hallo", got, "hello-de")
@@ -161,7 +159,7 @@ func TestFSLoaderMissingResourceTolerant(t *testing.T) {
 		"en/main.ftl": {Data: []byte("hi = Hi\n")},
 		// de/main.ftl intentionally absent.
 	}
-	loc, errs := localization.NewFromLocales(localization.Config{
+	loc, err := localization.NewFromLocales(localization.Config{
 		Requested: []string{"de", "en"},
 		Available: []string{"de", "en"},
 		Default:   "en",
@@ -169,7 +167,7 @@ func TestFSLoaderMissingResourceTolerant(t *testing.T) {
 		Loader:    localization.FSLoader(fsys, "{locale}/{resource}.ftl"),
 	})
 	// de bundle load fails -> recorded as an error, but chain still built.
-	assert.NotEmpty(t, errs, "expected a load error for the missing de resource")
+	assert.Error(t, err, "expected a load error for the missing de resource")
 	got, _ := loc.FormatValue("hi", nil)
 	assert.Equal(t, "Hi", got, "hi want \"Hi\" (en still loaded)")
 }

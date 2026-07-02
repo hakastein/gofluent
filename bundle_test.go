@@ -16,7 +16,7 @@ import (
 func newLocaleBundle(t *testing.T, locale, src string) *fluent.Bundle {
 	t.Helper()
 	b := fluent.NewBundle(locale, fluent.WithUseIsolating(false))
-	require.Empty(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
+	require.NoError(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
 	return b
 }
 
@@ -27,11 +27,24 @@ func newTestBundle(t *testing.T, src string) *fluent.Bundle {
 }
 
 // format is a convenience helper: get a message value and format it.
-func format(t *testing.T, b *fluent.Bundle, id string, args map[string]any) (string, []error) {
+func format(t *testing.T, b *fluent.Bundle, id string, args map[string]any) (string, error) {
 	t.Helper()
 	msg, ok := b.Message(id)
 	require.Truef(t, ok, "message %q not found", id)
 	return b.FormatPattern(msg.Value, args)
+}
+
+// errList unwraps a joined error into its constituents, for the tests whose
+// contract is the exact number of problems reported (not merely their kind).
+// A nil error yields nil; a single, un-joined error yields a one-element slice.
+func errList(err error) []error {
+	if err == nil {
+		return nil
+	}
+	if u, ok := err.(interface{ Unwrap() []error }); ok {
+		return u.Unwrap()
+	}
+	return []error{err}
 }
 
 func intPtr(i int) *int { return &i }
@@ -46,9 +59,9 @@ func TestAddResource(t *testing.T) {
 	assert.False(t, ok, "-bar should not be retrievable as a message")
 	// ...but it must resolve when referenced as a term.
 	b.AddResource(fluent.NewResource("use-bar = { -bar }\n"))
-	got, errs := format(t, b, "use-bar", nil)
+	got, err := format(t, b, "use-bar", nil)
 	assert.Equal(t, "Bar", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestMessagesAndTermsShareName(t *testing.T) {
@@ -61,22 +74,22 @@ func TestMessagesAndTermsShareName(t *testing.T) {
 	assert.True(t, ok, "foo should remain a message")
 
 	b.AddResource(fluent.NewResource("use-foo = { -foo }\n"))
-	got, errs := format(t, b, "use-foo", nil)
+	got, err := format(t, b, "use-foo", nil)
 	assert.Equal(t, "Private Foo", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestAllowOverrides(t *testing.T) {
 	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
 	b.AddResource(fluent.NewResource("key = Foo"))
 
-	errs := b.AddResource(fluent.NewResource("key = Bar"))
-	require.Len(t, errs, 1, "expected 1 override error")
+	err := b.AddResource(fluent.NewResource("key = Bar"))
+	require.Len(t, errList(err), 1, "expected 1 override error")
 	got, _ := format(t, b, "key", nil)
 	assert.Equal(t, "Foo", got)
 
-	errs = b.AddResourceOverriding(fluent.NewResource("key = Bar"))
-	require.Empty(t, errs, "expected no errors with overriding")
+	err = b.AddResourceOverriding(fluent.NewResource("key = Bar"))
+	require.NoError(t, err, "expected no errors with overriding")
 	got, _ = format(t, b, "key", nil)
 	assert.Equal(t, "Bar", got)
 }
@@ -119,10 +132,9 @@ func TestFormatPatternNilPattern(t *testing.T) {
 
 	// A nil pattern (e.g. the Value of an attribute-only message) must not
 	// panic: it renders the {???} fallback with a type error.
-	got, errs := b.FormatPattern(nil, nil)
+	got, err := b.FormatPattern(nil, nil)
 	assert.Equal(t, "{???}", got)
-	require.Len(t, errs, 1)
-	require.ErrorIs(t, errs[0], fluent.ErrType)
+	require.ErrorIs(t, err, fluent.ErrType)
 }
 
 func TestAttributeOnlyMessage(t *testing.T) {
@@ -132,9 +144,9 @@ func TestAttributeOnlyMessage(t *testing.T) {
 	require.True(t, ok, "an attribute-only message is still a public message")
 	assert.Nil(t, msg.Value, "attribute-only message has no value")
 
-	got, errs := b.FormatPattern(msg.Attributes["attr"], nil)
+	got, err := b.FormatPattern(msg.Attributes["attr"], nil)
 	assert.Equal(t, "Bar Attr", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestMessageLookup(t *testing.T) {
@@ -144,9 +156,9 @@ func TestMessageLookup(t *testing.T) {
 	require.True(t, ok, "expected foo")
 	assert.Equal(t, "foo", msg.ID)
 	require.NotNil(t, msg.Value)
-	got, errs := b.FormatPattern(msg.Value, nil)
+	got, err := b.FormatPattern(msg.Value, nil)
 	assert.Equal(t, "Foo", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 	assert.Empty(t, msg.Attributes)
 
 	_, ok = b.Message("-bar")

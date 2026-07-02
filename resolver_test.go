@@ -39,25 +39,24 @@ func TestFormattingValues(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, nil)
+			got, err := format(t, b, tc.id, nil)
 			assert.Equal(t, tc.want, got)
 			if tc.wantErr == nil {
-				assert.Empty(t, errs)
+				assert.NoError(t, err)
 			} else {
-				require.Len(t, errs, 1)
-				require.ErrorIs(t, errs[0], tc.wantErr)
+				require.ErrorIs(t, err, tc.wantErr)
 			}
 		})
 	}
 
 	// Attributes directly.
 	msg, _ := b.Message("key5")
-	got, errs := b.FormatPattern(msg.Attributes["a"], nil)
+	got, err := b.FormatPattern(msg.Attributes["a"], nil)
 	assert.Equal(t, "A5", got)
-	assert.Empty(t, errs)
-	got, errs = b.FormatPattern(msg.Attributes["b"], nil)
+	assert.NoError(t, err)
+	got, err = b.FormatPattern(msg.Attributes["b"], nil)
 	assert.Equal(t, "B5", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestReferencingValues(t *testing.T) {
@@ -124,13 +123,12 @@ func TestReferencingValues(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, nil)
+			got, err := format(t, b, tc.id, nil)
 			assert.Equal(t, tc.want, got)
 			if tc.wantErr == nil {
-				assert.Empty(t, errs)
+				assert.NoError(t, err)
 			} else {
-				require.Len(t, errs, 1)
-				require.ErrorIs(t, errs[0], tc.wantErr)
+				require.ErrorIs(t, err, tc.wantErr)
 			}
 		})
 	}
@@ -142,36 +140,32 @@ func TestNullValueReference(t *testing.T) {
 		"bar = { foo } Bar\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "foo", nil)
+	got, err := format(t, b, "foo", nil)
 	assert.Equal(t, "{???}", got)
-	require.Len(t, errs, 1)
-	require.ErrorIs(t, errs[0], fluent.ErrType)
+	require.ErrorIs(t, err, fluent.ErrType)
 
 	msg, _ := b.Message("foo")
-	got, errs = b.FormatPattern(msg.Attributes["attr"], nil)
+	got, err = b.FormatPattern(msg.Attributes["attr"], nil)
 	assert.Equal(t, "Foo Attr", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 
-	got, errs = format(t, b, "bar", nil)
+	got, err = format(t, b, "bar", nil)
 	assert.Equal(t, "{foo} Bar", got)
-	require.Len(t, errs, 1, "referencing a value-less message reports a reference error")
-	require.ErrorIs(t, errs[0], fluent.ErrReference)
+	require.ErrorIs(t, err, fluent.ErrReference, "referencing a value-less message reports a reference error")
 }
 
 func TestCyclicReferences(t *testing.T) {
 	t.Run("mutual", func(t *testing.T) {
 		b := newTestBundle(t, "foo = { bar }\nbar = { foo }\n")
-		got, errs := format(t, b, "foo", nil)
+		got, err := format(t, b, "foo", nil)
 		assert.Equal(t, "{???}", got)
-		require.NotEmpty(t, errs, "a cycle reports a range error")
-		require.ErrorIs(t, errs[0], fluent.ErrRange)
+		require.ErrorIs(t, err, fluent.ErrRange, "a cycle reports a range error")
 	})
 	t.Run("self", func(t *testing.T) {
 		b := newTestBundle(t, "foo = { foo }\n")
-		got, errs := format(t, b, "foo", nil)
+		got, err := format(t, b, "foo", nil)
 		assert.Equal(t, "{???}", got)
-		require.NotEmpty(t, errs, "a self-reference reports a range error")
-		require.ErrorIs(t, errs[0], fluent.ErrRange)
+		require.ErrorIs(t, err, fluent.ErrRange, "a self-reference reports a range error")
 	})
 	t.Run("self in member", func(t *testing.T) {
 		src := "foo =\n" +
@@ -182,13 +176,12 @@ func TestCyclicReferences(t *testing.T) {
 			"bar = { foo }\n"
 		b := newTestBundle(t, src)
 
-		got, errs := format(t, b, "foo", map[string]any{"sel": "a"})
+		got, err := format(t, b, "foo", map[string]any{"sel": "a"})
 		assert.Equal(t, "{???}", got)
-		require.NotEmpty(t, errs, "a self-reference in the selected member reports a range error")
-		require.ErrorIs(t, errs[0], fluent.ErrRange)
+		require.ErrorIs(t, err, fluent.ErrRange, "a self-reference in the selected member reports a range error")
 
-		got, errs = format(t, b, "foo", map[string]any{"sel": "b"})
+		got, err = format(t, b, "foo", map[string]any{"sel": "b"})
 		assert.Equal(t, "Bar", got)
-		assert.Empty(t, errs)
+		assert.NoError(t, err)
 	})
 }

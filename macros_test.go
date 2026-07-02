@@ -15,9 +15,9 @@ func TestTermReferencesAndCalls(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	for _, id := range []string{"term-ref", "term-call"} {
-		got, errs := format(t, b, id, map[string]any{})
+		got, err := format(t, b, id, map[string]any{})
 		assert.Equalf(t, "Bar", got, "%s", id)
-		assert.Emptyf(t, errs, "%s", id)
+		assert.NoErrorf(t, err, "%s", id)
 	}
 }
 
@@ -47,9 +47,9 @@ func TestTermPassingArguments(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, tc.args)
+			got, err := format(t, b, tc.id, tc.args)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -100,9 +100,9 @@ func TestParameterizedTermAttributes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, tc.args)
+			got, err := format(t, b, tc.id, tc.args)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -117,10 +117,9 @@ func TestMissingTermAttribute(t *testing.T) {
 		"}\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "msg", nil)
+	got, err := format(t, b, "msg", nil)
 	assert.Equal(t, "Fallback", got)
-	require.Len(t, errs, 1)
-	require.ErrorIs(t, errs[0], fluent.ErrReference)
+	require.ErrorIs(t, err, fluent.ErrReference)
 }
 
 // TestTermParamsClearedAfterNestedTerm pins the fluent.js scoping rule: a
@@ -133,9 +132,9 @@ func TestTermParamsClearedAfterNestedTerm(t *testing.T) {
 		"msg = {-outer(x: \"term\")}\n"
 	b := newTestBundle(t, src)
 
-	got, errs := format(t, b, "msg", map[string]any{"x": "top"})
+	got, err := format(t, b, "msg", map[string]any{"x": "top"})
 	assert.Equal(t, "Inner top", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }
 
 func TestNestingTermReferences(t *testing.T) {
@@ -162,9 +161,9 @@ func TestNestingTermReferences(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, tc.args)
+			got, err := format(t, b, tc.id, tc.args)
 			assert.Equal(t, tc.want, got)
-			assert.Empty(t, errs)
+			assert.NoError(t, err)
 		})
 	}
 }

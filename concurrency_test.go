@@ -77,7 +77,7 @@ func TestBundleConcurrentDefaultFormatters(t *testing.T) {
 
 	// Default bundle: no custom formatters, isolation on.
 	b := fluent.NewBundle("en")
-	require.Empty(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
+	require.NoError(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
 
 	ts := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
 	ids := []string{"count", "when", "apples", "welcome"}
@@ -103,12 +103,12 @@ func TestBundleConcurrentDefaultFormatters(t *testing.T) {
 					continue
 				}
 				args := map[string]any{"n": float64((seed + i) % 4), "d": ts}
-				out, errs := b.FormatPattern(msg.Value, args)
+				out, err := b.FormatPattern(msg.Value, args)
 				if out == "" {
 					problems <- fmt.Errorf("empty output for %q", id)
 				}
-				for _, e := range errs {
-					problems <- fmt.Errorf("format %q: %w", id, e)
+				if err != nil {
+					problems <- fmt.Errorf("format %q: %w", id, err)
 				}
 			}
 		}(r)

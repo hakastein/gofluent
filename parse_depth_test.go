@@ -35,7 +35,7 @@ func TestRuntimeModestNestingParses(t *testing.T) {
 	src := "foo = " + strings.Repeat("{ ", depth) + "$x" + strings.Repeat(" }", depth) + "\n"
 
 	b := newTestBundle(t, src)
-	got, errs := format(t, b, "foo", map[string]any{"x": "hi"})
+	got, err := format(t, b, "foo", map[string]any{"x": "hi"})
 	assert.Equal(t, "hi", got)
-	assert.Empty(t, errs)
+	assert.NoError(t, err)
 }

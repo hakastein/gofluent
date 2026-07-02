@@ -1,6 +1,7 @@
 package fluent
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -157,15 +158,18 @@ func (b *Bundle) lookupFunction(name string) (Function, bool) {
 }
 
 // AddResource adds a parsed resource to the bundle without allowing overrides.
-// It returns errors for any attempted overrides of existing messages/terms.
-func (b *Bundle) AddResource(res *Resource) []error {
-	return b.addResource(res, false)
+// It returns a non-nil error (joining one per attempted override) if the
+// resource redefines an existing message or term; the non-conflicting entries
+// are still added. Classify with errors.Is or recover the individual errors
+// through the joined error's Unwrap() []error.
+func (b *Bundle) AddResource(res *Resource) error {
+	return errors.Join(b.addResource(res, false)...)
 }
 
 // AddResourceOverriding adds a parsed resource, allowing it to override existing
 // messages and terms.
-func (b *Bundle) AddResourceOverriding(res *Resource) []error {
-	return b.addResource(res, true)
+func (b *Bundle) AddResourceOverriding(res *Resource) error {
+	return errors.Join(b.addResource(res, true)...)
 }
 
 func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
@@ -212,16 +216,25 @@ func (e *overrideError) Error() string { return e.msg }
 // (e.g. a Number carrying formatting options); other types render as a
 // missing-variable fallback with an error.
 //
-// Formatting is fault-tolerant: a best-effort string is always returned, and
-// every problem encountered (missing references, type mismatches, ...) is
-// reported in errs, each classified by one of the ErrReference / ErrRange /
-// ErrType sentinels.
+// Formatting is fault-tolerant: a best-effort string is always returned even
+// when the error is non-nil. A non-nil error means "partial output plus the
+// problems encountered" (missing references, type mismatches, ...), not
+// failure — the returned string is still usable, with fluent.js-style
+// placeholders standing in for the parts that failed. The error joins every
+// problem via errors.Join, so errors.Is(err, ErrReference) (or ErrRange /
+// ErrType) classifies it and the joined error's Unwrap() []error recovers the
+// full list.
 //
 // Precision note: integer arguments are stored as float64 (Fluent's only
 // numeric type, matching JS). int64/uint64 magnitudes above 2^53 cannot be
 // represented exactly and may be rounded; pass a preformatted string (or a
 // custom Value) when exact rendering of such large integers matters.
-func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (result string, errs []error) {
+func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (string, error) {
+	result, errs := b.formatPattern(pattern, args)
+	return result, errors.Join(errs...)
+}
+
+func (b *Bundle) formatPattern(pattern Pattern, args map[string]any) (result string, errs []error) {
 	// A simple pattern resolves without a scope.
 	if s, ok := pattern.(textPattern); ok {
 		return b.transform(string(s)), nil
