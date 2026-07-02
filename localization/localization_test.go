@@ -29,7 +29,7 @@ known = Hello from en
 shared = Shared en
 `)
 
-	loc := localization.New([]*fluent.Bundle{de, en})
+	loc := localization.New(de, en)
 
 	// "known" exists only in en -> falls through to en.
 	got, err := loc.FormatValue("known", nil)
@@ -58,7 +58,7 @@ login = Sign in
     .title = Click to sign in
     .aria = Sign-in button
 `)
-	loc := localization.New([]*fluent.Bundle{en})
+	loc := localization.New(en)
 
 	got, err := loc.FormatValue("login.title", nil)
 	assert.Equal(t, "Click to sign in", got, "login.title")
@@ -81,7 +81,7 @@ func TestAttributeFallsThrough(t *testing.T) {
 greeting = Hello
     .tooltip = A friendly greeting
 `)
-	loc := localization.New([]*fluent.Bundle{de, en})
+	loc := localization.New(de, en)
 
 	got, err := loc.FormatValue("greeting.tooltip", nil)
 	assert.Equal(t, "A friendly greeting", got, "greeting.tooltip want en attribute")
@@ -90,7 +90,7 @@ greeting = Hello
 
 func TestFormatValueWithArgs(t *testing.T) {
 	en := mustBundle(t, "en", `welcome = Welcome, { $name }!`)
-	loc := localization.New([]*fluent.Bundle{en})
+	loc := localization.New(en)
 	got, err := loc.FormatValue("welcome", map[string]any{"name": "Mary"})
 	assert.Equal(t, "Welcome, ⁨Mary⁩!", got, "welcome")
 	assert.NoError(t, err, "welcome errs")
@@ -101,7 +101,7 @@ func TestFormatMessage(t *testing.T) {
 btn = Save
     .title = Save the document
 `)
-	loc := localization.New([]*fluent.Bundle{en})
+	loc := localization.New(en)
 
 	msg, err := loc.FormatMessage("btn", nil)
 	assert.Equal(t, "Save", msg.Value, "value")

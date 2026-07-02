@@ -84,7 +84,7 @@ func matchSelector(scope *Scope, selector, key Value) bool {
 		return false
 	}
 	category := guardExtension(scope, func() string { return "" }, func() string {
-		if sel.Options.Type == "ordinal" {
+		if sel.Options.Type == Ordinal {
 			return scope.bundle.pluralRules.Ordinal(scope.bundle.locale, sel.Value, sel.Options)
 		}
 		return scope.bundle.pluralRules.Cardinal(scope.bundle.locale, sel.Value, sel.Options)
@@ -118,7 +118,7 @@ func resolveExpression(scope *Scope, expr expression) Value {
 	case *stringLiteral:
 		return String(e.value)
 	case *numberLiteral:
-		return NewNumber(e.value, NumberOptions{MinimumFractionDigits: intPtr(e.precision)})
+		return NewNumber(e.value, NumberOptions{MinimumFractionDigits: Int(e.precision)})
 	case *variableReference:
 		return resolveVariableReference(scope, e)
 	case *messageReference:

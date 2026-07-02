@@ -30,8 +30,9 @@ type Localization struct {
 type ResourceLoader func(locale, resourceID string) (string, error)
 
 // New builds a Localization from already-constructed bundles, in priority order
-// (highest-priority locale first). Callers retain ownership of the input slice.
-func New(bundles []*fluent.Bundle) *Localization {
+// (highest-priority locale first). The single-bundle case reads New(b); a
+// slice expands with New(bundles...).
+func New(bundles ...*fluent.Bundle) *Localization {
 	return &Localization{bundles: slices.Clone(bundles)}
 }
 
@@ -94,7 +95,7 @@ func NewFromLocales(cfg Config) (*Localization, error) {
 		bundles = append(bundles, bundle)
 	}
 
-	return New(bundles), errors.Join(errs...)
+	return New(bundles...), errors.Join(errs...)
 }
 
 // splitID splits a dotted id "msg.attr" into ("msg", "attr"). A bare "msg"
@@ -146,8 +147,10 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, erro
 	return id, &NotFoundError{ID: id}
 }
 
-// Message is a fully formatted message: its value and all of its attributes.
-type Message struct {
+// FormattedMessage is a fully formatted message: its value and all of its
+// attributes. It is distinct from fluent.Message, which is the compiled,
+// unformatted message.
+type FormattedMessage struct {
 	Value      string
 	Attributes map[string]string
 }
@@ -157,14 +160,14 @@ type Message struct {
 // has only attributes. A non-nil error joins the resolver problems from the
 // winning bundle. On a total miss the value is the id and the error is a
 // *NotFoundError.
-func (l *Localization) FormatMessage(id string, args map[string]any) (Message, error) {
+func (l *Localization) FormatMessage(id string, args map[string]any) (FormattedMessage, error) {
 	for _, bundle := range l.bundles {
 		msg, ok := bundle.Message(id)
 		if !ok {
 			continue
 		}
 
-		var out Message
+		var out FormattedMessage
 		var errs []error
 		if value := msg.Value(); value != nil {
 			var ferr error
@@ -183,7 +186,7 @@ func (l *Localization) FormatMessage(id string, args map[string]any) (Message, e
 		return out, errors.Join(errs...)
 	}
 
-	return Message{Value: id}, &NotFoundError{ID: id}
+	return FormattedMessage{Value: id}, &NotFoundError{ID: id}
 }
 
 // NotFoundError reports that an id could not be resolved in any bundle.

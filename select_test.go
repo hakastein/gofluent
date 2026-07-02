@@ -132,7 +132,7 @@ func TestWithPluralRulesOrdinalDispatch(t *testing.T) {
 	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(splitPluralRules{}))
 	b.AddResource(fluent.NewResource(src))
 
-	ordinal := fluent.NewNumber(1, fluent.NumberOptions{Type: "ordinal"})
+	ordinal := fluent.NewNumber(1, fluent.NumberOptions{Type: fluent.Ordinal})
 	got, err := format(t, b, "foo", map[string]any{"n": ordinal})
 	assert.Equal(t, "A", got, "ordinal numbers consult the override's Ordinal ruleset")
 	assert.NoError(t, err)

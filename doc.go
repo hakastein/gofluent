@@ -40,7 +40,6 @@
 // By default placeables are wrapped in Unicode bidirectional isolation marks
 // (FSI/PDI). Disable this with [WithUseIsolating](false).
 //
-// A [Bundle] is safe for concurrent use: FormatPattern, Message, and the Add*
-// methods (AddFunction, AddResource, AddResourceOverriding) may run from
-// multiple goroutines at once.
+// A [Bundle] is safe for concurrent use: FormatPattern, Message, AddResource,
+// and AddResourceOverriding may run from multiple goroutines at once.
 package fluent

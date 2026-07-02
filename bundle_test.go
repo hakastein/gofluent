@@ -47,8 +47,6 @@ func errList(err error) []error {
 	return []error{err}
 }
 
-func intPtr(i int) *int { return &i }
-
 func TestAddResource(t *testing.T) {
 	b := newTestBundle(t, "foo = Foo\n-bar = Bar\n")
 

@@ -28,10 +28,10 @@ func TestCLDRNumberFormatting(t *testing.T) {
 	// style and currency are outside fluent.js's FTL option allowlist, so the
 	// percent/currency cases carry them on a Number argument built in code.
 	percent := func(n float64) *fluent.Number {
-		return fluent.NewNumber(n, fluent.NumberOptions{Style: "percent"})
+		return fluent.NewNumber(n, fluent.NumberOptions{Style: fluent.StylePercent})
 	}
 	currency := func(n float64, code string) *fluent.Number {
-		return fluent.NewNumber(n, fluent.NumberOptions{Style: "currency", Currency: code})
+		return fluent.NewNumber(n, fluent.NumberOptions{Style: fluent.StyleCurrency, Currency: code})
 	}
 	cases := []struct {
 		name   string
@@ -115,7 +115,7 @@ func TestCLDRPluralOrdinalSelect(t *testing.T) {
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("en_%v", c.n), func(t *testing.T) {
 			b := newLocaleBundle(t, "en", src)
-			arg := fluent.NewNumber(c.n, fluent.NumberOptions{Type: "ordinal"})
+			arg := fluent.NewNumber(c.n, fluent.NumberOptions{Type: fluent.Ordinal})
 			got, errs := format(t, b, "v", map[string]any{"n": arg})
 			require.Empty(t, errs)
 			assert.Equal(t, c.want, got)

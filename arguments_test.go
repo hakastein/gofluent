@@ -80,7 +80,7 @@ func TestVariableStringAndNumber(t *testing.T) {
 	assert.NoError(t, err)
 
 	// A Number argument with minimumFractionDigits=2 renders 1.00.
-	arg := fluent.NewNumber(1, fluent.NumberOptions{MinimumFractionDigits: intPtr(2)})
+	arg := fluent.NewNumber(1, fluent.NumberOptions{MinimumFractionDigits: fluent.Int(2)})
 	got, err = format(t, b, "foo", map[string]any{"arg": arg})
 	assert.Equal(t, "1.00", got)
 	assert.NoError(t, err)

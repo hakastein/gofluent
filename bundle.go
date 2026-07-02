@@ -18,17 +18,17 @@ type TextTransform func(string) string
 // Bundle is a single-language store of translation resources, responsible for
 // formatting message values and attributes to strings.
 //
-// A Bundle is safe for concurrent use: FormatPattern, Message, AddFunction,
-// AddResource, and AddResourceOverriding may be called from multiple
-// goroutines simultaneously. The locale and the injected formatters are set
-// once at construction and never mutated afterwards.
+// A Bundle is safe for concurrent use: FormatPattern, Message, AddResource,
+// and AddResourceOverriding may be called from multiple goroutines
+// simultaneously. The locale, the functions, and the injected formatters are
+// set once at construction and never mutated afterwards.
 type Bundle struct {
 	// locale is the BCP-47 tag passed to the pluggable formatters.
 	locale string
 
-	// mu guards terms, messages, and functions. It is held per map operation,
-	// never across a whole FormatPattern or a user-function call, so a function
-	// that itself calls AddFunction does not deadlock.
+	// mu guards terms and messages against concurrent AddResource writes. It is
+	// held per map operation, never across a whole FormatPattern. functions is
+	// not guarded: it is populated at construction and read-only thereafter.
 	mu        sync.RWMutex
 	terms     map[string]*term
 	messages  map[string]*Message
@@ -127,13 +127,6 @@ func NewBundle(locale string, opts ...Option) *Bundle {
 // Locale returns the bundle's primary locale string.
 func (b *Bundle) Locale() string { return b.locale }
 
-// AddFunction registers (or overrides) a runtime function by name.
-func (b *Bundle) AddFunction(name string, fn Function) {
-	b.mu.Lock()
-	b.functions[name] = fn
-	b.mu.Unlock()
-}
-
 // Message returns the message with the given id, if present.
 func (b *Bundle) Message(id string) (*Message, bool) {
 	b.mu.RLock()
@@ -151,9 +144,7 @@ func (b *Bundle) lookupTerm(id string) (*term, bool) {
 }
 
 func (b *Bundle) lookupFunction(name string) (Function, bool) {
-	b.mu.RLock()
 	fn, ok := b.functions[name]
-	b.mu.RUnlock()
 	return fn, ok
 }
 

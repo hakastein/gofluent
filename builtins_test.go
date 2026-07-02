@@ -96,11 +96,11 @@ func TestNumberBuiltinOptionAllowlist(t *testing.T) {
 	)
 	b.AddResource(fluent.NewResource("n = { NUMBER($arg, style: \"unit\", unit: \"kilometer\", minimumFractionDigits: 1) }\n"))
 
-	arg := fluent.NewNumber(5, fluent.NumberOptions{Style: "currency", Currency: "USD"})
+	arg := fluent.NewNumber(5, fluent.NumberOptions{Style: fluent.StyleCurrency, Currency: "USD"})
 	got, err := format(t, b, "n", map[string]any{"arg": arg})
 	assert.Equal(t, "fmt", got)
 	assert.NoError(t, err)
-	assert.Equal(t, "currency", rec.last.Style, "argument options are forwarded")
+	assert.Equal(t, fluent.StyleCurrency, rec.last.Style, "argument options are forwarded")
 	assert.Equal(t, "USD", rec.last.Currency)
 	assert.Empty(t, rec.last.Unit, "disallowed FTL options are ignored")
 	require.NotNil(t, rec.last.MinimumFractionDigits, "allowed FTL options are merged")
@@ -113,7 +113,7 @@ func TestNumberBuiltinFluentNumberMerge(t *testing.T) {
 	b := newTestBundle(t, src)
 
 	// minimumFractionDigits=3 from the arg is retained unless overridden.
-	arg := fluent.NewNumber(1234, fluent.NumberOptions{MinimumFractionDigits: intPtr(3)})
+	arg := fluent.NewNumber(1234, fluent.NumberOptions{MinimumFractionDigits: fluent.Int(3)})
 	got, err := format(t, b, "num-bare", map[string]any{"arg": arg})
 	assert.Equal(t, "1,234.000", got, "bare retains arg fraction digits")
 	assert.NoError(t, err)
@@ -128,7 +128,7 @@ func TestNumberBuiltinFromDateTime(t *testing.T) {
 	// NUMBER on a DateTime argument yields its epoch-millis number.
 	b := newTestBundle(t, "num-bare = { NUMBER($arg) }\n")
 	date := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
-	arg := fluent.NewDateTime(date, fluent.DateTimeOptions{Month: "short", Day: "numeric"})
+	arg := fluent.NewDateTime(date, fluent.DateTimeOptions{Month: fluent.MonthShort, Day: fluent.Numeric})
 	got, err := format(t, b, "num-bare", map[string]any{"arg": arg})
 	assert.Equal(t, "1,475,107,200,000", got)
 	assert.NoError(t, err)
@@ -209,7 +209,7 @@ func TestDateTimeBuiltinOptionAllowlist(t *testing.T) {
 		got, err := format(t, b, "wd", map[string]any{"arg": arg})
 		assert.Equal(t, "fmt", got)
 		assert.NoError(t, err)
-		assert.Equal(t, "long", rec.last.Weekday)
+		assert.Equal(t, fluent.WidthLong, rec.last.Weekday)
 	})
 
 	for _, id := range []string{"tz", "cal", "ns"} {
@@ -278,8 +278,8 @@ func TestFunctionErrorIsRecovered(t *testing.T) {
 	boom := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 		return nil, errors.New("boom")
 	}
-	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-	b.AddFunction("BOOM", boom)
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+		fluent.WithFunctions(map[string]fluent.Function{"BOOM": boom}))
 	b.AddResource(fluent.NewResource("foo = { BOOM() }\n"))
 
 	got, err := format(t, b, "foo", nil)
@@ -294,8 +294,8 @@ func TestFunctionPanicHandling(t *testing.T) {
 		panicErr := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 			panic(errors.New("custom boom"))
 		}
-		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-		b.AddFunction("PANICERR", panicErr)
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+			fluent.WithFunctions(map[string]fluent.Function{"PANICERR": panicErr}))
 		b.AddResource(fluent.NewResource("foo = { PANICERR() }\n"))
 
 		got, err := format(t, b, "foo", nil)
@@ -307,8 +307,8 @@ func TestFunctionPanicHandling(t *testing.T) {
 		panicStr := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 			panic("plain string boom")
 		}
-		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-		b.AddFunction("PANICSTR", panicStr)
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+			fluent.WithFunctions(map[string]fluent.Function{"PANICSTR": panicStr}))
 		b.AddResource(fluent.NewResource("foo = { PANICSTR() }\n"))
 
 		got, err := format(t, b, "foo", nil)
@@ -325,8 +325,8 @@ func TestFunctionPanicHandling(t *testing.T) {
 			m["x"] = 1 // assignment to entry in nil map -> runtime panic
 			return fluent.String("unreachable"), nil
 		}
-		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-		b.AddFunction("NILDEREF", nilDeref)
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+			fluent.WithFunctions(map[string]fluent.Function{"NILDEREF": nilDeref}))
 		b.AddResource(fluent.NewResource("foo = { NILDEREF() }\n"))
 
 		msg, ok := b.Message("foo")
@@ -353,8 +353,8 @@ func TestFunctionNilReturn(t *testing.T) {
 	}
 
 	t.Run("placeable position", func(t *testing.T) {
-		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-		b.AddFunction("NIL", nilFn)
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+			fluent.WithFunctions(map[string]fluent.Function{"NIL": nilFn}))
 		b.AddResource(fluent.NewResource("foo = { NIL() }\n"))
 
 		var got string
@@ -367,8 +367,8 @@ func TestFunctionNilReturn(t *testing.T) {
 	})
 
 	t.Run("selector position", func(t *testing.T) {
-		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-		b.AddFunction("NIL", nilFn)
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+			fluent.WithFunctions(map[string]fluent.Function{"NIL": nilFn}))
 		b.AddResource(fluent.NewResource("foo = { NIL() ->\n    [a] A\n   *[b] B\n}\n"))
 
 		var got string

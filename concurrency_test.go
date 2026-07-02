@@ -14,29 +14,27 @@ import (
 )
 
 // TestBundleConcurrentAccess exercises Bundle for the data race documented in
-// the contract: AddFunction/AddResource/AddResourceOverriding mutate the
-// bundle's maps while FormatPattern/Message read them. Run with -race to catch
-// the regression.
+// the contract: AddResource/AddResourceOverriding mutate the bundle's maps
+// while FormatPattern/Message read them. Run with -race to catch the
+// regression.
 func TestBundleConcurrentAccess(t *testing.T) {
-	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-	b.AddResource(fluent.NewResource("greet = { ECHO() } world\n"))
-
 	echo := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
 		return fluent.String("hello"), nil
 	}
-	b.AddFunction("ECHO", echo)
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+		fluent.WithFunctions(map[string]fluent.Function{"ECHO": echo}))
+	b.AddResource(fluent.NewResource("greet = { ECHO() } world\n"))
 
 	msg, ok := b.Message("greet")
 	assert.True(t, ok)
 
 	var wg sync.WaitGroup
 
-	// Writer goroutine: continuously mutate the maps through every Add method.
+	// Writer goroutine: continuously mutate the maps through both Add methods.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			b.AddFunction("ECHO", echo)
 			b.AddResource(fluent.NewResource("extra = Extra\n"))
 			b.AddResourceOverriding(fluent.NewResource("extra = Extra\n"))
 		}
@@ -63,7 +61,7 @@ func TestBundleConcurrentAccess(t *testing.T) {
 // exercises that path. Here multiple readers format patterns that drive number
 // formatting (with options), date/time formatting, CLDR plural selection, and
 // term references and term attributes, while multiple writers mutate the
-// bundle's maps through every Add method. Run with -race.
+// bundle's maps through AddResource and AddResourceOverriding. Run with -race.
 func TestBundleConcurrentDefaultFormatters(t *testing.T) {
 	const src = "-brand = Aurora\n" +
 		"    .tagline = shine\n" +
@@ -117,16 +115,12 @@ func TestBundleConcurrentDefaultFormatters(t *testing.T) {
 	// A resource of new ids: the first insert wins, later ones report override
 	// errors that are irrelevant here; the point is the concurrent map write.
 	extra := fluent.NewResource("solo = Solo\n")
-	noop := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
-		return fluent.String(""), nil
-	}
 	for w := 0; w < writers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for i := 0; i < iters; i++ {
 				b.AddResourceOverriding(fluent.NewResource(src))
-				b.AddFunction("NOOP", noop)
 				b.AddResource(extra)
 			}
 		}()
