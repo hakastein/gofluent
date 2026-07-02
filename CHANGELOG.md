@@ -9,6 +9,42 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [Unreleased]
 
+A hardening pass driven by a production-readiness audit: no crash should be
+reachable through the public API, even from misbehaving extension points or
+pathological input.
+
+### Fixed — robustness
+
+- **Both parsers bound placeable nesting depth (100 levels).** A pathological
+  source with enough nested `{` used to exhaust the stack — a fatal,
+  unrecoverable crash in Go (fluent.js survives because JS throws a catchable
+  `RangeError`). Past the limit the runtime parser skips the entry and the
+  syntax parser emits Junk, like any other syntax error.
+- **A custom `Function` returning `(nil, nil)` no longer panics.** The nil
+  result is reported as a type error and renders the `{NAME()}` fallback,
+  honoring the always-return-a-string contract.
+- **Panics from injected `WithNumberFormatter`/`WithDateTimeFormatter`/
+  `WithPluralRules` implementations are recovered** with the same discipline
+  as custom functions: the error is collected, formatting falls back
+  (plain rendering for numbers, default CLDR for datetimes, default variant
+  for selects), and only genuine `runtime.Error` programming bugs re-panic.
+- `syntax`: parsing a large block pattern is linear again; merging adjacent
+  text lines was quadratic (an 800k-line value took ~88s, now well under a
+  second).
+- `ast`: `StringLiteral.Parse` no longer drops the character immediately
+  following a `\u`/`\U` escape.
+- `Scope.Locale` is nil-receiver-safe and returns `""` without a bundle, so
+  custom `Value` implementations can follow the documented "tolerate a nil
+  scope" contract without panicking.
+
+### Fixed — error reporting
+
+- A `NUMBER()` carrying an invalid option reports its range error when used
+  purely as a select selector; previously the error surfaced only when the
+  number was formatted.
+- With several invalid `NUMBER()` options the reported error is deterministic
+  (options are validated in sorted order, not map order).
+
 ## [0.5.0] - 2026-06-15
 
 A fluent.js-parity and cleanup pass: backend and frontend rendering the same
