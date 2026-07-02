@@ -9,6 +9,8 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-02
+
 A hardening pass driven by a production-readiness audit: no crash should be
 reachable through the public API, even from misbehaving extension points or
 pathological input.
@@ -84,6 +86,12 @@ A coordinated pre-1.0 pass toward an idiomatic-Go 1.0 surface, guided by
   `WithFunctions`, matching fluent.js (whose `FluentBundle` has no
   `addFunction`). The functions map is immutable after construction and no
   longer needs the bundle mutex.
+
+### Dependencies
+
+- `gocldr` 0.2.0 → 0.3.0: plural operands for values ≥ 2⁶³ mirror ICU, `NaN`
+  keeps style affixes, unresolvable time zones fall back to UTC
+  deterministically.
 
 ## [0.5.0] - 2026-06-15
 
