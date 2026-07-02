@@ -30,7 +30,8 @@ func TestVariablesInValues(t *testing.T) {
 	assert.NoError(t, err)
 
 	msg, _ := b.Message("baz")
-	got, err = b.FormatPattern(msg.Attributes["attr"], map[string]any{"num": 3})
+	attr, _ := msg.Attribute("attr")
+	got, err = b.FormatPattern(attr, map[string]any{"num": 3})
 	assert.Equal(t, "Baz Attribute 3", got)
 	assert.NoError(t, err)
 

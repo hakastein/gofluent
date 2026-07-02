@@ -86,7 +86,8 @@ func TestPrimitiveSimpleStrings(t *testing.T) {
 
 	// Attribute value directly.
 	msg, _ := b.Message("bar")
-	got, err := b.FormatPattern(msg.Attributes["attr"], nil)
+	attr, _ := msg.Attribute("attr")
+	got, err := b.FormatPattern(attr, nil)
 	assert.Equal(t, "Bar Attribute", got)
 	assert.NoError(t, err)
 }
@@ -128,7 +129,8 @@ func TestPrimitiveComplexStrings(t *testing.T) {
 	// Attribute value directly.
 	t.Run("attribute directly", func(t *testing.T) {
 		msg, _ := b.Message("baz")
-		got, err := b.FormatPattern(msg.Attributes["attr"], nil)
+		attr, _ := msg.Attribute("attr")
+		got, err := b.FormatPattern(attr, nil)
 		assert.Equal(t, "FooBarBazAttribute", got)
 		assert.NoError(t, err)
 	})

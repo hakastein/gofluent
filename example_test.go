@@ -24,7 +24,7 @@ func Example() {
 		panic("message not found")
 	}
 
-	out, _ := b.FormatPattern(msg.Value, map[string]any{"name": "World"})
+	out, _ := b.FormatPattern(msg.Value(), map[string]any{"name": "World"})
 	fmt.Println(out)
 	// Output: Hello, World!
 }
@@ -45,8 +45,8 @@ emails =
 	b.AddResource(fluent.NewResource(src))
 
 	msg, _ := b.Message("emails")
-	one, _ := b.FormatPattern(msg.Value, map[string]any{"count": 1})
-	five, _ := b.FormatPattern(msg.Value, map[string]any{"count": 5})
+	one, _ := b.FormatPattern(msg.Value(), map[string]any{"count": 1})
+	five, _ := b.FormatPattern(msg.Value(), map[string]any{"count": 5})
 	fmt.Println(one)
 	fmt.Println(five)
 	// Output:
@@ -80,17 +80,17 @@ updated = Обновлено { DATETIME($at, dateStyle: "long") }
 
 	apples, _ := b.Message("apples")
 	for _, n := range []int{1, 2, 5, 21} {
-		out, _ := b.FormatPattern(apples.Value, map[string]any{"n": n})
+		out, _ := b.FormatPattern(apples.Value(), map[string]any{"n": n})
 		fmt.Println(out)
 	}
 
 	total, _ := b.Message("total")
-	out, _ := b.FormatPattern(total.Value, map[string]any{"total": 1234567})
+	out, _ := b.FormatPattern(total.Value(), map[string]any{"total": 1234567})
 	fmt.Println(out)
 
 	updated, _ := b.Message("updated")
 	at := time.Date(2023, 1, 5, 14, 9, 7, 0, time.UTC)
-	out, _ = b.FormatPattern(updated.Value, map[string]any{"at": at})
+	out, _ = b.FormatPattern(updated.Value(), map[string]any{"at": at})
 	fmt.Println(out)
 
 	// Output:

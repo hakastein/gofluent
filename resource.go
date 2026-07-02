@@ -218,7 +218,7 @@ func (p *parser) parseMessage(id string) (entry, error) {
 	if strings.HasPrefix(id, "-") {
 		return &term{id: id, value: value, attributes: attributes}, nil
 	}
-	return &Message{ID: id, Value: value, Attributes: attributes}, nil
+	return &Message{id: id, value: value, attributes: attributes}, nil
 }
 
 func (p *parser) parseAttributes() (map[string]Pattern, error) {

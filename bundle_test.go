@@ -31,7 +31,7 @@ func format(t *testing.T, b *fluent.Bundle, id string, args map[string]any) (str
 	t.Helper()
 	msg, ok := b.Message(id)
 	require.Truef(t, ok, "message %q not found", id)
-	return b.FormatPattern(msg.Value, args)
+	return b.FormatPattern(msg.Value(), args)
 }
 
 // errList unwraps a joined error into its constituents, for the tests whose
@@ -142,9 +142,10 @@ func TestAttributeOnlyMessage(t *testing.T) {
 
 	msg, ok := b.Message("bar")
 	require.True(t, ok, "an attribute-only message is still a public message")
-	assert.Nil(t, msg.Value, "attribute-only message has no value")
+	assert.Nil(t, msg.Value(), "attribute-only message has no value")
 
-	got, err := b.FormatPattern(msg.Attributes["attr"], nil)
+	attr, _ := msg.Attribute("attr")
+	got, err := b.FormatPattern(attr, nil)
 	assert.Equal(t, "Bar Attr", got)
 	assert.NoError(t, err)
 }
@@ -154,12 +155,12 @@ func TestMessageLookup(t *testing.T) {
 
 	msg, ok := b.Message("foo")
 	require.True(t, ok, "expected foo")
-	assert.Equal(t, "foo", msg.ID)
-	require.NotNil(t, msg.Value)
-	got, err := b.FormatPattern(msg.Value, nil)
+	assert.Equal(t, "foo", msg.ID())
+	require.NotNil(t, msg.Value())
+	got, err := b.FormatPattern(msg.Value(), nil)
 	assert.Equal(t, "Foo", got)
 	assert.NoError(t, err)
-	assert.Empty(t, msg.Attributes)
+	assert.Empty(t, msg.AttributeNames())
 
 	_, ok = b.Message("-bar")
 	assert.False(t, ok, "-bar should not be retrievable as a message")

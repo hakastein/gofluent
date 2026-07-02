@@ -332,7 +332,7 @@ func TestFunctionPanicHandling(t *testing.T) {
 		msg, ok := b.Message("foo")
 		require.True(t, ok)
 		assert.Panics(t, func() {
-			b.FormatPattern(msg.Value, nil)
+			b.FormatPattern(msg.Value(), nil)
 		}, "a runtime panic inside a function must propagate")
 	})
 }

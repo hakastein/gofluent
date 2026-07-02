@@ -190,12 +190,12 @@ func (b *Bundle) addResource(res *Resource, allowOverrides bool) []error {
 			b.terms[e.id] = e
 		case *Message:
 			if !allowOverrides {
-				if _, exists := b.messages[e.ID]; exists {
-					errs = append(errs, newOverrideError("message", e.ID))
+				if _, exists := b.messages[e.id]; exists {
+					errs = append(errs, newOverrideError("message", e.id))
 					continue
 				}
 			}
-			b.messages[e.ID] = e
+			b.messages[e.id] = e
 		}
 	}
 

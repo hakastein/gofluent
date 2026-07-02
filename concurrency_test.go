@@ -48,7 +48,7 @@ func TestBundleConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			b.FormatPattern(msg.Value, nil)
+			b.FormatPattern(msg.Value(), nil)
 			b.Message("greet")
 		}
 	}()
@@ -98,12 +98,12 @@ func TestBundleConcurrentDefaultFormatters(t *testing.T) {
 			for i := 0; i < iters; i++ {
 				id := ids[(seed+i)%len(ids)]
 				msg, ok := b.Message(id)
-				if !ok || msg.Value == nil {
+				if !ok || msg.Value() == nil {
 					problems <- fmt.Errorf("message %q missing while formatting", id)
 					continue
 				}
 				args := map[string]any{"n": float64((seed + i) % 4), "d": ts}
-				out, err := b.FormatPattern(msg.Value, args)
+				out, err := b.FormatPattern(msg.Value(), args)
 				if out == "" {
 					problems <- fmt.Errorf("empty output for %q", id)
 				}

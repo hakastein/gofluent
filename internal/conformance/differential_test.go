@@ -3,7 +3,6 @@ package conformance
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -103,15 +102,6 @@ func referencePlaceable(expr ast.Expression) (string, bool) {
 	}
 }
 
-func attributeKeys(m map[string]fluent.Pattern) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 // TestRuntimeParserDifferential feeds each reference fixture through both
 // parsers and cross-checks the runtime parser against the syntax AST.
 func TestRuntimeParserDifferential(t *testing.T) {
@@ -160,14 +150,14 @@ func TestRuntimeParserDifferential(t *testing.T) {
 					"runtime parser dropped message %q that the syntax parser accepted", id)
 
 				assertAttributeInventory(t, name, id, m, rm)
-				assertPatternText(t, id, "value", m.Value, rm.Value, bundle)
+				assertPatternText(t, id, "value", m.Value, rm.Value(), bundle)
 
 				for _, a := range m.Attributes {
 					attr := a.ID.Name
 					if _, dropped := attributeDropReason(name, id, attr); dropped {
 						continue
 					}
-					rp, ok := rm.Attributes[attr]
+					rp, ok := rm.Attribute(attr)
 					if !ok {
 						continue // reported by assertAttributeInventory
 					}
@@ -189,13 +179,13 @@ func assertAttributeInventory(t *testing.T, fixture, id string, m *ast.Message, 
 		if _, dropped := attributeDropReason(fixture, id, attr); dropped {
 			continue
 		}
-		_, ok := rm.Attributes[attr]
+		_, ok := rm.Attribute(attr)
 		assert.Truef(t, ok,
 			"runtime parser dropped attribute %q of message %q that the syntax parser accepted",
 			attr, id)
 	}
 
-	for _, attr := range attributeKeys(rm.Attributes) {
+	for _, attr := range rm.AttributeNames() {
 		assert.Truef(t, synAttrs[attr],
 			"runtime parser exposed attribute %q of message %q that the syntax parser did not accept",
 			attr, id)

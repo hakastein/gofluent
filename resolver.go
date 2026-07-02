@@ -170,15 +170,15 @@ func resolveMessageReference(scope *Scope, ref *messageReference) Value {
 	}
 
 	if ref.attr != "" {
-		if attribute, ok := message.Attributes[ref.attr]; ok {
+		if attribute, ok := message.attributes[ref.attr]; ok {
 			return resolvePattern(scope, attribute)
 		}
 		scope.reportError(newReferenceError("Unknown attribute: %s", ref.attr))
 		return NewNone(ref.name + "." + ref.attr)
 	}
 
-	if message.Value != nil {
-		return resolvePattern(scope, message.Value)
+	if message.value != nil {
+		return resolvePattern(scope, message.value)
 	}
 
 	scope.reportError(newReferenceError("No value: %s", ref.name))

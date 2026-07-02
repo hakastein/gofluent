@@ -51,10 +51,12 @@ func TestFormattingValues(t *testing.T) {
 
 	// Attributes directly.
 	msg, _ := b.Message("key5")
-	got, err := b.FormatPattern(msg.Attributes["a"], nil)
+	a, _ := msg.Attribute("a")
+	got, err := b.FormatPattern(a, nil)
 	assert.Equal(t, "A5", got)
 	assert.NoError(t, err)
-	got, err = b.FormatPattern(msg.Attributes["b"], nil)
+	bAttr, _ := msg.Attribute("b")
+	got, err = b.FormatPattern(bAttr, nil)
 	assert.Equal(t, "B5", got)
 	assert.NoError(t, err)
 }
@@ -145,7 +147,8 @@ func TestNullValueReference(t *testing.T) {
 	require.ErrorIs(t, err, fluent.ErrType)
 
 	msg, _ := b.Message("foo")
-	got, err = b.FormatPattern(msg.Attributes["attr"], nil)
+	attr, _ := msg.Attribute("attr")
+	got, err = b.FormatPattern(attr, nil)
 	assert.Equal(t, "Foo Attr", got)
 	assert.NoError(t, err)
 

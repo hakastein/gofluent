@@ -127,13 +127,14 @@ func (l *Localization) FormatValue(id string, args map[string]any) (string, erro
 		if attr == "" {
 			// A message with attributes but no value cannot produce a string
 			// value; treat it as a miss so the next bundle gets a chance.
-			if msg.Value == nil {
+			value := msg.Value()
+			if value == nil {
 				continue
 			}
-			return bundle.FormatPattern(msg.Value, args)
+			return bundle.FormatPattern(value, args)
 		}
 
-		pattern, has := msg.Attributes[attr]
+		pattern, has := msg.Attribute(attr)
 		if !has {
 			// Message exists here but lacks the requested attribute; fall through
 			// to the next bundle (fluent.js missing-attribute fallback).
@@ -165,14 +166,15 @@ func (l *Localization) FormatMessage(id string, args map[string]any) (Message, e
 
 		var out Message
 		var errs []error
-		if msg.Value != nil {
+		if value := msg.Value(); value != nil {
 			var ferr error
-			out.Value, ferr = bundle.FormatPattern(msg.Value, args)
+			out.Value, ferr = bundle.FormatPattern(value, args)
 			errs = append(errs, ferr)
 		}
-		if len(msg.Attributes) > 0 {
-			out.Attributes = make(map[string]string, len(msg.Attributes))
-			for name, pattern := range msg.Attributes {
+		if names := msg.AttributeNames(); len(names) > 0 {
+			out.Attributes = make(map[string]string, len(names))
+			for _, name := range names {
+				pattern, _ := msg.Attribute(name)
 				formatted, ferr := bundle.FormatPattern(pattern, args)
 				out.Attributes[name] = formatted
 				errs = append(errs, ferr)
