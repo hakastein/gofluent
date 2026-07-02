@@ -46,8 +46,7 @@ func (cldrDateTimeFormatter) FormatDateTime(locale string, t time.Time, opts Dat
 	return datetime.Format(locale, t, datetimeOptions(opts))
 }
 
-// datetimeOptions maps DateTimeOptions onto gocldr/datetime.Options. The two
-// structs mirror each other field-for-field.
+// datetimeOptions maps DateTimeOptions onto gocldr/datetime.Options.
 func datetimeOptions(opts DateTimeOptions) datetime.Options {
 	return datetime.Options{
 		Hour12:                 opts.Hour12,
@@ -99,10 +98,3 @@ func pluralOptions(opts NumberOptions) number.Options {
 		MaximumSignificantDigits: opts.MaximumSignificantDigits,
 	}
 }
-
-// Compile-time checks that the CLDR defaults satisfy the core interfaces.
-var (
-	_ NumberFormatter   = cldrNumberFormatter{}
-	_ DateTimeFormatter = cldrDateTimeFormatter{}
-	_ PluralRules       = cldrPluralRules{}
-)

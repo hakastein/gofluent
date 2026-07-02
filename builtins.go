@@ -27,9 +27,7 @@ func optString(v Value) (string, bool) {
 func optInt(v Value) (int, bool) {
 	switch t := v.(type) {
 	case *Number:
-		// Only an integral value is a valid integer option. A fractional value
-		// (e.g. 2.9) is out of spec and must fail the same way the string "2.9"
-		// does, rather than being silently truncated.
+		// Fractional values must fail like non-numeric strings (Intl), not truncate.
 		if t.Value != math.Trunc(t.Value) {
 			return 0, false
 		}
@@ -58,31 +56,29 @@ func optBool(v Value) (bool, bool) {
 	return false, false
 }
 
-// numberOptionsFrom merges the allowed named options into a NumberOptions,
-// starting from a base set of options. Unknown options are ignored, mirroring
-// fluent.js. An integer-valued option carrying a non-numeric value (e.g.
-// minimumFractionDigits: "oops") returns a deferred range error: the NUMBER
-// builtin still succeeds and the error surfaces at format time, mirroring
-// Intl.NumberFormat throwing in its constructor-deferred way.
+// numberOptionsFrom merges the NUMBER_ALLOWED named options into a
+// NumberOptions, starting from a base set of options. Options outside the
+// fluent.js allowlist (style, currency, unit, ...) are ignored. An invalid
+// integer option value (non-numeric, fractional, or out of its Intl range)
+// returns a deferred range error: the NUMBER builtin still succeeds and the
+// error surfaces at format time, mirroring Intl.NumberFormat throwing in its
+// constructor-deferred way.
 func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions, error) {
 	out := base
+	setInt := func(dst **int, name string, v Value, min, max int) error {
+		n, ok := optInt(v)
+		if !ok || n < min || n > max {
+			return newRangeError("Invalid option value for " + name)
+		}
+		*dst = intPtr(n)
+		return nil
+	}
+	var err error
 	for name, v := range opts {
 		switch name {
-		case "style":
-			if s, ok := optString(v); ok {
-				out.Style = s
-			}
-		case "currency":
-			if s, ok := optString(v); ok {
-				out.Currency = s
-			}
 		case "currencyDisplay":
 			if s, ok := optString(v); ok {
 				out.CurrencyDisplay = s
-			}
-		case "unit":
-			if s, ok := optString(v); ok {
-				out.Unit = s
 			}
 		case "unitDisplay":
 			if s, ok := optString(v); ok {
@@ -93,42 +89,28 @@ func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions
 				out.UseGrouping = boolPtr(b)
 			}
 		case "minimumIntegerDigits":
-			n, ok := optInt(v)
-			if !ok {
-				return out, newRangeError("Invalid option value for minimumIntegerDigits")
-			}
-			out.MinimumIntegerDigits = intPtr(n)
+			err = setInt(&out.MinimumIntegerDigits, name, v, 1, 21)
 		case "minimumFractionDigits":
-			n, ok := optInt(v)
-			if !ok {
-				return out, newRangeError("Invalid option value for minimumFractionDigits")
-			}
-			out.MinimumFractionDigits = intPtr(n)
+			err = setInt(&out.MinimumFractionDigits, name, v, 0, 100)
 		case "maximumFractionDigits":
-			n, ok := optInt(v)
-			if !ok {
-				return out, newRangeError("Invalid option value for maximumFractionDigits")
-			}
-			out.MaximumFractionDigits = intPtr(n)
+			err = setInt(&out.MaximumFractionDigits, name, v, 0, 100)
 		case "minimumSignificantDigits":
-			n, ok := optInt(v)
-			if !ok {
-				return out, newRangeError("Invalid option value for minimumSignificantDigits")
-			}
-			out.MinimumSignificantDigits = intPtr(n)
+			err = setInt(&out.MinimumSignificantDigits, name, v, 1, 21)
 		case "maximumSignificantDigits":
-			n, ok := optInt(v)
-			if !ok {
-				return out, newRangeError("Invalid option value for maximumSignificantDigits")
-			}
-			out.MaximumSignificantDigits = intPtr(n)
+			err = setInt(&out.MaximumSignificantDigits, name, v, 1, 21)
+		}
+		if err != nil {
+			return out, err
 		}
 	}
 	return out, nil
 }
 
-// dateTimeOptionsFrom merges the allowed named options into a DateTimeOptions.
-func dateTimeOptionsFrom(base DateTimeOptions, opts map[string]Value) DateTimeOptions {
+// dateTimeOptionsFrom merges the DATETIME_ALLOWED named options into a
+// DateTimeOptions. Options outside the fluent.js allowlist (timeZone,
+// calendar, numberingSystem) are ignored. An invalid fractionalSecondDigits
+// value returns a range error, mirroring Intl.DateTimeFormat.
+func dateTimeOptionsFrom(base DateTimeOptions, opts map[string]Value) (DateTimeOptions, error) {
 	out := base
 	setStr := func(dst *string, v Value) {
 		if s, ok := optString(v); ok {
@@ -165,19 +147,15 @@ func dateTimeOptionsFrom(base DateTimeOptions, opts map[string]Value) DateTimeOp
 			setStr(&out.Second, v)
 		case "timeZoneName":
 			setStr(&out.TimeZoneName, v)
-		case "timeZone":
-			setStr(&out.TimeZone, v)
-		case "calendar":
-			setStr(&out.Calendar, v)
-		case "numberingSystem":
-			setStr(&out.NumberingSystem, v)
 		case "fractionalSecondDigits":
-			if n, ok := optInt(v); ok {
-				out.FractionalSecondDigits = intPtr(n)
+			n, ok := optInt(v)
+			if !ok || n < 1 || n > 3 {
+				return out, newRangeError("Invalid option value for fractionalSecondDigits")
 			}
+			out.FractionalSecondDigits = intPtr(n)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // builtinNUMBER implements the NUMBER() builtin.
@@ -205,10 +183,9 @@ func builtinNUMBER(args []Value, opts map[string]Value) (Value, error) {
 	return nil, newTypeError("Invalid argument to NUMBER")
 }
 
-// millisToTime converts a millisecond Unix timestamp to a time.Time (UTC).
-func millisToTime(ms float64) time.Time {
-	return time.UnixMilli(int64(ms)).UTC()
-}
+// maxTimeValueMillis is ECMA-262's time value range: ±8.64e15 ms from the
+// epoch. Intl.DateTimeFormat throws a RangeError beyond it.
+const maxTimeValueMillis = 8.64e15
 
 // builtinDATETIME implements the DATETIME() builtin.
 func builtinDATETIME(args []Value, opts map[string]Value) (Value, error) {
@@ -221,11 +198,20 @@ func builtinDATETIME(args []Value, opts map[string]Value) (Value, error) {
 	case *None:
 		return NewNone("DATETIME(" + a.fallback + ")"), nil
 	case *DateTime:
-		merged := dateTimeOptionsFrom(a.Options, opts)
+		merged, err := dateTimeOptionsFrom(a.Options, opts)
+		if err != nil {
+			return nil, err
+		}
 		return NewDateTime(a.Time, merged), nil
 	case *Number:
-		merged := dateTimeOptionsFrom(DateTimeOptions{}, opts)
-		return NewDateTime(millisToTime(a.Value), merged), nil
+		if math.IsNaN(a.Value) || math.Abs(a.Value) > maxTimeValueMillis {
+			return nil, newRangeError("Invalid time value")
+		}
+		merged, err := dateTimeOptionsFrom(DateTimeOptions{}, opts)
+		if err != nil {
+			return nil, err
+		}
+		return NewDateTime(time.UnixMilli(int64(a.Value)).UTC(), merged), nil
 	}
 
 	return nil, newTypeError("Invalid argument to DATETIME")

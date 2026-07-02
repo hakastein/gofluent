@@ -2,6 +2,7 @@ package fluent_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -12,11 +13,9 @@ import (
 
 // Ported from functions_builtin_test.js and functions_runtime_test.js.
 //
-// NewBundle installs the CLDR-backed formatters by default, so the numeric and
-// date assertions below match fluent.js / Intl output (en-US grouping and short
-// date format). The test binary blank-imports gocldr/locales/all (see
-// format_cldr_test.go) to supply that data. Option-merging, type dispatch, and
-// error semantics are identical to fluent.js.
+// NewBundle installs the CLDR-backed formatters by default; the test binary
+// blank-imports gocldr/locales/all (see format_cldr_test.go) to supply the
+// locale data for the numeric and date assertions.
 
 func TestNumberBuiltinDefaults(t *testing.T) {
 	src := "num-bare = { NUMBER($arg) }\n" +
@@ -53,11 +52,16 @@ func TestNumberBuiltinDefaults(t *testing.T) {
 	})
 
 	t.Run("fractional integer-option value is invalid", func(t *testing.T) {
-		// A non-integral Number option (e.g. 2.9) is out of spec for an integer
-		// option and routes to the same RangeError as the string "2.9", rather
-		// than being silently truncated to 2.
 		fb := newTestBundle(t, "num-frac-num = { NUMBER($arg, minimumFractionDigits: 2.9) }\n")
 		got, errs := format(t, fb, "num-frac-num", map[string]any{"arg": 1234})
+		assert.Equal(t, "1234", got)
+		require.Len(t, errs, 1, "expected a single range error")
+		require.ErrorIs(t, errs[0], fluent.ErrRange)
+	})
+
+	t.Run("out-of-range integer option is invalid", func(t *testing.T) {
+		fb := newTestBundle(t, "num-frac-big = { NUMBER($arg, minimumFractionDigits: 999) }\n")
+		got, errs := format(t, fb, "num-frac-big", map[string]any{"arg": 1234})
 		assert.Equal(t, "1234", got)
 		require.Len(t, errs, 1, "expected a single range error")
 		require.ErrorIs(t, errs[0], fluent.ErrRange)
@@ -87,19 +91,26 @@ func (f *recordingNumberFormatter) FormatNumber(_ string, _ float64, opts fluent
 	return "fmt"
 }
 
-func TestNumberBuiltinForwardsUnit(t *testing.T) {
+// NUMBER() ignores options outside fluent.js's allowlist (style, currency,
+// unit, ...): a translation cannot change what kind of quantity a number is.
+// Those options reach the formatter only on a Number argument built in code.
+func TestNumberBuiltinOptionAllowlist(t *testing.T) {
 	rec := &recordingNumberFormatter{}
 	b := fluent.NewBundle("en-US",
 		fluent.WithUseIsolating(false),
 		fluent.WithNumberFormatter(rec),
 	)
-	b.AddResource(fluent.NewResource("n = { NUMBER($arg, style: \"unit\", unit: \"kilometer\") }\n"))
+	b.AddResource(fluent.NewResource("n = { NUMBER($arg, style: \"unit\", unit: \"kilometer\", minimumFractionDigits: 1) }\n"))
 
-	got, errs := format(t, b, "n", map[string]any{"arg": 5})
+	arg := fluent.NewNumber(5, fluent.NumberOptions{Style: "currency", Currency: "USD"})
+	got, errs := format(t, b, "n", map[string]any{"arg": arg})
 	assert.Equal(t, "fmt", got)
 	assert.Empty(t, errs)
-	assert.Equal(t, "kilometer", rec.last.Unit)
-	assert.Equal(t, "unit", rec.last.Style)
+	assert.Equal(t, "currency", rec.last.Style, "argument options are forwarded")
+	assert.Equal(t, "USD", rec.last.Currency)
+	assert.Empty(t, rec.last.Unit, "disallowed FTL options are ignored")
+	require.NotNil(t, rec.last.MinimumFractionDigits, "allowed FTL options are merged")
+	assert.Equal(t, 1, *rec.last.MinimumFractionDigits)
 }
 
 func TestNumberBuiltinFluentNumberMerge(t *testing.T) {
@@ -162,6 +173,17 @@ func TestDateTimeBuiltin(t *testing.T) {
 		assert.Equal(t, "1/1/1970", got)
 		assert.Empty(t, errs)
 	})
+
+	t.Run("non-finite number argument is invalid", func(t *testing.T) {
+		// Intl.DateTimeFormat throws a RangeError outside ECMA-262's
+		// ±8.64e15 ms time value range; NaN and Inf are equally invalid.
+		for _, arg := range []float64{math.NaN(), math.Inf(1), 8.64e15 + 1} {
+			got, errs := format(t, b, "dt-bare", map[string]any{"arg": arg})
+			assert.Equal(t, "{DATETIME()}", got)
+			require.Len(t, errs, 1, "expected a single range error")
+			require.ErrorIs(t, errs[0], fluent.ErrRange)
+		}
+	})
 }
 
 // recordingDateTimeFormatter captures the DateTimeOptions it is handed so a
@@ -174,7 +196,10 @@ func (f *recordingDateTimeFormatter) FormatDateTime(_ string, _ time.Time, opts 
 	return "fmt"
 }
 
-func TestDateTimeBuiltinForwardsOptions(t *testing.T) {
+// DATETIME() ignores options outside fluent.js's allowlist (timeZone,
+// calendar, numberingSystem): those reach the formatter only on a DateTime
+// argument built in code.
+func TestDateTimeBuiltinOptionAllowlist(t *testing.T) {
 	rec := &recordingDateTimeFormatter{}
 	b := fluent.NewBundle("en-US",
 		fluent.WithUseIsolating(false),
@@ -182,27 +207,27 @@ func TestDateTimeBuiltinForwardsOptions(t *testing.T) {
 	)
 	src := "tz = { DATETIME($arg, timeZone: \"America/New_York\") }\n" +
 		"cal = { DATETIME($arg, calendar: \"buddhist\") }\n" +
-		"ns = { DATETIME($arg, numberingSystem: \"arab\") }\n"
+		"ns = { DATETIME($arg, numberingSystem: \"arab\") }\n" +
+		"wd = { DATETIME($arg, weekday: \"long\") }\n"
 	b.AddResource(fluent.NewResource(src))
 
-	arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
+	arg := fluent.NewDateTime(time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC),
+		fluent.DateTimeOptions{TimeZone: "Europe/Berlin"})
 
-	tests := []struct {
-		name string
-		id   string
-		get  func(fluent.DateTimeOptions) string
-		want string
-	}{
-		{"timeZone", "tz", func(o fluent.DateTimeOptions) string { return o.TimeZone }, "America/New_York"},
-		{"calendar", "cal", func(o fluent.DateTimeOptions) string { return o.Calendar }, "buddhist"},
-		{"numberingSystem", "ns", func(o fluent.DateTimeOptions) string { return o.NumberingSystem }, "arab"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, errs := format(t, b, tc.id, map[string]any{"arg": arg})
+	t.Run("allowed FTL option is forwarded", func(t *testing.T) {
+		got, errs := format(t, b, "wd", map[string]any{"arg": arg})
+		assert.Equal(t, "fmt", got)
+		assert.Empty(t, errs)
+		assert.Equal(t, "long", rec.last.Weekday)
+	})
+
+	for _, id := range []string{"tz", "cal", "ns"} {
+		t.Run(id+" is ignored", func(t *testing.T) {
+			got, errs := format(t, b, id, map[string]any{"arg": arg})
 			assert.Equal(t, "fmt", got)
 			assert.Empty(t, errs)
-			assert.Equal(t, tc.want, tc.get(rec.last))
+			assert.Equal(t, fluent.DateTimeOptions{TimeZone: "Europe/Berlin"}, rec.last,
+				"only the argument's own options survive")
 		})
 	}
 }

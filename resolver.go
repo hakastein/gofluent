@@ -26,8 +26,8 @@ var (
 	// ErrReference: an unknown message, term, variable, function, or attribute
 	// was referenced.
 	ErrReference = errors.New("fluent: reference error")
-	// ErrRange: no variant matched a selector, a value is out of range, a
-	// reference is cyclic, or the placeable limit was exceeded.
+	// ErrRange: a reference is cyclic, the placeable limit was exceeded, or an
+	// option value is invalid.
 	ErrRange = errors.New("fluent: range error")
 	// ErrType: a value cannot be used in the position it appears (e.g. a
 	// non-numeric selector argument, or a term used as a placeable).
@@ -64,53 +64,42 @@ func newTypeError(format string, a ...any) *typeError {
 // matchSelector matches a variant key against the given selector.
 func matchSelector(scope *Scope, selector, key Value) bool {
 	if ss, ok := selector.(String); ok {
-		if ks, ok := key.(String); ok {
-			return ss == ks
-		}
+		ks, ok := key.(String)
+		return ok && ss == ks
 	}
 
-	selNum, selIsNum := selector.(numberValue)
-	keyNum, keyIsNum := key.(numberValue)
+	sel, ok := selector.(*Number)
+	if !ok {
+		return false
+	}
 
-	// Both numbers: compare by value (XXX options are not compared, mirroring
-	// the fluent.js note).
-	if selIsNum && keyIsNum {
-		sv, _ := selNum.numberValue()
-		kv, _ := keyNum.numberValue()
-		if sv == kv {
-			return true
-		}
+	if kn, ok := key.(*Number); ok {
+		return sel.Value == kn.Value
 	}
 
 	// Numeric selector against a string key: consult the plural rules.
-	if selIsNum {
-		if ks, ok := key.(String); ok {
-			sv, sopts := selNum.numberValue()
-			var category string
-			if sopts.Type == "ordinal" {
-				category = scope.bundle.pluralRules.Ordinal(scope.bundle.locale, sv, sopts)
-			} else {
-				category = scope.bundle.pluralRules.Cardinal(scope.bundle.locale, sv, sopts)
-			}
-			if string(ks) == category {
-				return true
-			}
-		}
+	ks, ok := key.(String)
+	if !ok {
+		return false
 	}
-
-	return false
+	var category string
+	if sel.Options.Type == "ordinal" {
+		category = scope.bundle.pluralRules.Ordinal(scope.bundle.locale, sel.Value, sel.Options)
+	} else {
+		category = scope.bundle.pluralRules.Cardinal(scope.bundle.locale, sel.Value, sel.Options)
+	}
+	return string(ks) == category
 }
 
-// getDefault resolves the default variant from a list of variants.
+// getDefault resolves the default variant. The runtime parser is the only
+// producer of selectExpressions and rejects sources without a valid default,
+// so star always indexes variants.
 func getDefault(scope *Scope, variants []variant, star int) Value {
-	if star >= 0 && star < len(variants) {
-		return resolvePattern(scope, variants[star].value)
-	}
-	scope.reportError(newRangeError("No default"))
-	return NewNone("")
+	return resolvePattern(scope, variants[star].value)
 }
 
-// resolveArguments resolves the arguments of a term or function call.
+// resolveArguments resolves the arguments of a term or function call. named is
+// never nil: Scope.params relies on nil meaning "not inside a term".
 func resolveArguments(scope *Scope, args callArguments) (positional []Value, named map[string]Value) {
 	for _, arg := range args.positional {
 		positional = append(positional, resolveExpression(scope, arg))
@@ -147,27 +136,21 @@ func resolveExpression(scope *Scope, expr expression) Value {
 // resolveVariableReference resolves a reference to a variable.
 func resolveVariableReference(scope *Scope, ref *variableReference) Value {
 	name := ref.name
-	var arg Value
-	var found bool
 
-	if scope.paramsSet {
-		// Inside a termReference. It's OK to reference undefined parameters.
+	// Inside a termReference the params replace the args entirely, and it's OK
+	// to reference undefined parameters: no error is reported.
+	if scope.params != nil {
 		if v, ok := scope.params[name]; ok {
-			arg = v
-			found = true
-		} else {
-			return NewNone("$" + name)
+			return v
 		}
-	} else if v, ok := scope.args[name]; ok {
-		arg = v
-		found = true
-	}
-
-	if !found {
-		scope.reportError(newReferenceError("Unknown variable: $%s", name))
 		return NewNone("$" + name)
 	}
 
+	arg, ok := scope.args[name]
+	if !ok {
+		scope.reportError(newReferenceError("Unknown variable: $%s", name))
+		return NewNone("$" + name)
+	}
 	// Args are normalized to Values on entry; a nil Value marks an argument
 	// of an unsupported Go type whose key was preserved.
 	if arg == nil {
@@ -179,7 +162,7 @@ func resolveVariableReference(scope *Scope, ref *variableReference) Value {
 
 // resolveMessageReference resolves a reference to another message.
 func resolveMessageReference(scope *Scope, ref *messageReference) Value {
-	message, ok := scope.bundle.lookupMessage(ref.name)
+	message, ok := scope.bundle.Message(ref.name)
 	if !ok {
 		scope.reportError(newReferenceError("Unknown message: %s", ref.name))
 		return NewNone(ref.name)
@@ -202,15 +185,13 @@ func resolveMessageReference(scope *Scope, ref *messageReference) Value {
 }
 
 // withTermParams resolves pattern with the term's own parameters installed.
-// Mirroring fluent.js (resolver.ts sets `scope.params = ...` and then
-// `scope.params = null`), the params are cleared afterwards rather than
-// restored — a variable referenced after an embedded term resolves against
-// the top-level args.
+// The params are cleared afterwards rather than restored (matching fluent.js):
+// a variable referenced after an embedded term resolves against the top-level
+// args.
 func withTermParams(scope *Scope, args callArguments, pattern Pattern) Value {
 	_, scope.params = resolveArguments(scope, args)
-	scope.paramsSet = true
 	resolved := resolvePattern(scope, pattern)
-	scope.params, scope.paramsSet = nil, false
+	scope.params = nil
 	return resolved
 }
 
@@ -313,12 +294,8 @@ func resolveComplexPattern(scope *Scope, ptn complexPattern) Value {
 
 		scope.placeables++
 		if scope.placeables > MaxPlaceables {
-			if key != nil {
-				delete(scope.dirty, key)
-			}
-			// Fatal error: bail out instantly. The length check protects
-			// against excessive memory; aborting protects the CPU when long
-			// placeables are deeply nested.
+			// Fatal: abort the whole resolution, recovered at the
+			// FormatPattern boundary.
 			panic(fluentPanic{newRangeError(
 				"Too many placeables expanded: %d, max allowed is %d",
 				scope.placeables, MaxPlaceables,

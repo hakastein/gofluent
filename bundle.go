@@ -22,10 +22,8 @@ type TextTransform func(string) string
 // goroutines simultaneously. The locale and the injected formatters are set
 // once at construction and never mutated afterwards.
 type Bundle struct {
-	// locale is the primary BCP-47 tag passed to the pluggable formatters;
-	// locales keeps the full fallback list set by WithLocales.
-	locale  string
-	locales []string
+	// locale is the BCP-47 tag passed to the pluggable formatters.
+	locale string
 
 	// mu guards terms, messages, and functions. It is held per map operation,
 	// never across a whole FormatPattern or a user-function call, so a function
@@ -98,17 +96,6 @@ func WithPluralRules(p PluralRules) Option {
 	}
 }
 
-// WithLocales sets the full locale fallback list. The first entry becomes the
-// primary locale passed to formatters.
-func WithLocales(locales ...string) Option {
-	return func(b *Bundle) {
-		if len(locales) > 0 {
-			b.locales = append([]string(nil), locales...)
-			b.locale = locales[0]
-		}
-	}
-}
-
 // NewBundle creates a Bundle for the given primary locale. useIsolating
 // defaults to true; NUMBER and DATETIME are always available; the three
 // formatters default to the CLDR-backed implementations (matching Intl.*).
@@ -118,7 +105,6 @@ func WithLocales(locales ...string) Option {
 func NewBundle(locale string, opts ...Option) *Bundle {
 	b := &Bundle{
 		locale:   locale,
-		locales:  []string{locale},
 		terms:    make(map[string]*term),
 		messages: make(map[string]*Message),
 		functions: map[string]Function{
@@ -149,19 +135,13 @@ func (b *Bundle) AddFunction(name string, fn Function) {
 
 // Message returns the message with the given id, if present.
 func (b *Bundle) Message(id string) (*Message, bool) {
-	return b.lookupMessage(id)
-}
-
-// lookupMessage returns the message with the given id under a read lock.
-func (b *Bundle) lookupMessage(id string) (*Message, bool) {
 	b.mu.RLock()
 	m, ok := b.messages[id]
 	b.mu.RUnlock()
 	return m, ok
 }
 
-// lookupTerm returns the term with the given id (including the leading "-")
-// under a read lock.
+// lookupTerm returns the term with the given id (including the leading "-").
 func (b *Bundle) lookupTerm(id string) (*term, bool) {
 	b.mu.RLock()
 	t, ok := b.terms[id]
@@ -169,7 +149,6 @@ func (b *Bundle) lookupTerm(id string) (*term, bool) {
 	return t, ok
 }
 
-// lookupFunction returns the function registered under name under a read lock.
 func (b *Bundle) lookupFunction(name string) (Function, bool) {
 	b.mu.RLock()
 	fn, ok := b.functions[name]
@@ -268,11 +247,9 @@ func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (result str
 		scope.reportError(newTypeError("Cannot format null value"))
 		return NewNone("").Format(scope), scope.errs
 	}
-	cp, ok := pattern.(complexPattern)
-	if !ok {
-		return NewNone("").Format(scope), scope.errs
-	}
-	return resolveComplexPattern(scope, cp).Format(scope), scope.errs
+	// Pattern is sealed; after the textPattern and nil checks only
+	// complexPattern remains.
+	return resolveComplexPattern(scope, pattern.(complexPattern)).Format(scope), scope.errs
 }
 
 // coerceArgs converts raw Go argument values into Fluent Values.

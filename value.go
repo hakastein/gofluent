@@ -16,12 +16,6 @@ type Value interface {
 	Format(scope *Scope) string
 }
 
-// numberValue is implemented by Number; used by select-expression matching to
-// compare numeric selectors without locale formatting.
-type numberValue interface {
-	numberValue() (float64, NumberOptions)
-}
-
 // String is the Value for a plain string.
 type String string
 
@@ -46,9 +40,6 @@ func NewNone(fallback string) *None {
 	return &None{fallback: fallback}
 }
 
-// Fallback returns the raw fallback string (without braces).
-func (n *None) Fallback() string { return n.fallback }
-
 // Format renders the None as `{fallback}`.
 func (n *None) Format(_ *Scope) string { return "{" + n.fallback + "}" }
 
@@ -70,20 +61,17 @@ func NewNumber(value float64, opts NumberOptions) *Number {
 	return &Number{Value: value, Options: opts}
 }
 
-func (n *Number) numberValue() (float64, NumberOptions) { return n.Value, n.Options }
-
-// Format renders the number using the bundle's NumberFormatter.
+// Format renders the number using the bundle's NumberFormatter. A deferred
+// option error is reported via the scope and falls back to the plain
+// rendering, as does formatting without a scope.
 func (n *Number) Format(scope *Scope) string {
-	if n.optErr != nil {
+	if scope == nil || n.optErr != nil {
 		if scope != nil {
 			scope.reportError(n.optErr)
 		}
 		return strconv.FormatFloat(n.Value, 'f', -1, 64)
 	}
-	if scope != nil {
-		return scope.bundle.numberFormatter.FormatNumber(scope.bundle.locale, n.Value, n.Options)
-	}
-	return strconv.FormatFloat(n.Value, 'f', -1, 64)
+	return scope.bundle.numberFormatter.FormatNumber(scope.bundle.locale, n.Value, n.Options)
 }
 
 // DateTime is the Value for a date/time (FluentDateTime in fluent.js): a

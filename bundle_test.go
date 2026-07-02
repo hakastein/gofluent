@@ -11,12 +11,19 @@ import (
 // Shared test helpers for the fluent_test package. They drive the package
 // through its exported API only.
 
-// newTestBundle creates a bundle with useIsolating=false and adds the resource.
+// newLocaleBundle creates a non-isolating bundle for locale and adds the
+// resource, requiring it to load cleanly.
+func newLocaleBundle(t *testing.T, locale, src string) *fluent.Bundle {
+	t.Helper()
+	b := fluent.NewBundle(locale, fluent.WithUseIsolating(false))
+	require.Empty(t, b.AddResource(fluent.NewResource(src)), "AddResource errors")
+	return b
+}
+
+// newTestBundle is newLocaleBundle for the default en-US locale.
 func newTestBundle(t *testing.T, src string) *fluent.Bundle {
 	t.Helper()
-	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
-	b.AddResource(fluent.NewResource(src))
-	return b
+	return newLocaleBundle(t, "en-US", src)
 }
 
 // format is a convenience helper: get a message value and format it.
@@ -27,8 +34,6 @@ func format(t *testing.T, b *fluent.Bundle, id string, args map[string]any) (str
 	return b.FormatPattern(msg.Value, args)
 }
 
-// intPtr is local test scaffolding for building NumberOptions pointer fields; it
-// references no production symbol.
 func intPtr(i int) *int { return &i }
 
 func TestAddResource(t *testing.T) {
@@ -97,6 +102,16 @@ func TestBrokenEntriesAreNotPublic(t *testing.T) {
 		_, ok := b.Message(id)
 		assert.Falsef(t, ok, "%q should not be a public message", id)
 	}
+}
+
+// The runtime parser accepts the same whitespace inside placeables as
+// fluent.js, whose token regexes use JavaScript's \s (tabs, NBSP, ...) — not
+// just spaces and newlines.
+func TestRuntimeParserAcceptsJSWhitespace(t *testing.T) {
+	b := newTestBundle(t, "m = {\t$x }\n")
+	got, errs := format(t, b, "m", map[string]any{"x": "ok"})
+	assert.Equal(t, "ok", got)
+	assert.Empty(t, errs)
 }
 
 func TestFormatPatternNilPattern(t *testing.T) {

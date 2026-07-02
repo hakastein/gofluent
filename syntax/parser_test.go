@@ -137,6 +137,16 @@ func TestCommentAttachment(t *testing.T) {
 	assert.Equal(t, "Hello", msg.Comment.Content)
 }
 
+func TestCommentAstralCharacters(t *testing.T) {
+	res := syntax.Parse("# \U0001F600 emoji\nfoo = Bar\n")
+	require.Len(t, res.Body, 1)
+
+	msg, ok := res.Body[0].(*ast.Message)
+	require.True(t, ok, "expected *ast.Message, got %T", res.Body[0])
+	require.NotNil(t, msg.Comment)
+	assert.Equal(t, "\U0001F600 emoji", msg.Comment.Content)
+}
+
 func TestWithSpansDisabled(t *testing.T) {
 	res := syntax.Parse("foo = Bar\n", syntax.WithSpans(false))
 	assert.Nil(t, res.GetSpan(), "expected no span on resource")

@@ -33,10 +33,9 @@
 //	msg, _ := b.Message("hello")
 //	out, errs := b.FormatPattern(msg.Value, map[string]any{"name": "World"})
 //
-// The resolver is fault-tolerant: it never panics. Missing references and
-// other problems are reported in the returned errors and rendered as
-// fluent.js-style placeholders (for example {$name}); a best-effort string is
-// always returned.
+// The resolver is fault-tolerant: missing references and other problems are
+// reported in the returned errors and rendered as fluent.js-style placeholders
+// (for example {$name}); a best-effort string is always returned.
 //
 // By default placeables are wrapped in Unicode bidirectional isolation marks
 // (FSI/PDI). Disable this with [WithUseIsolating](false).

@@ -113,9 +113,6 @@ func decodeUTF16(buf []uint16) string {
 
 // lastIndexOfEOL returns the index of the last LF at or before `from`, or -1.
 func (ps *parserStream) lastIndexOfEOL(from int) int {
-	if from > len(ps.units) {
-		from = len(ps.units)
-	}
 	for i := from; i >= 0; i-- {
 		if ps.unitAt(i) == '\n' {
 			return i
@@ -287,14 +284,11 @@ func (ps *parserStream) isNextLineComment(level int) bool {
 		i++
 	}
 
+	// The first char after #, ## or ###.
 	ch := ps.peek()
-	if ch == ' ' || ch == eol {
-		ps.resetPeek(0)
-		return true
-	}
-
+	ok := ch == ' ' || ch == eol
 	ps.resetPeek(0)
-	return false
+	return ok
 }
 
 func (ps *parserStream) isVariantStart() bool {
@@ -302,12 +296,9 @@ func (ps *parserStream) isVariantStart() bool {
 	if ps.currentPeek() == '*' {
 		ps.peek()
 	}
-	if ps.currentPeek() == '[' {
-		ps.resetPeek(currentPeekOffset)
-		return true
-	}
+	ok := ps.currentPeek() == '['
 	ps.resetPeek(currentPeekOffset)
-	return false
+	return ok
 }
 
 func (ps *parserStream) isAttributeStart() bool {

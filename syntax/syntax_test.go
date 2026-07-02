@@ -99,20 +99,14 @@ func TestLineColumnOffsetFromJunkSpan(t *testing.T) {
 	assert.Equal(t, 0, syntax.ColumnOffset(src, sp.Start), "junk should start at column 0")
 }
 
-// countingVisitor records every node type it sees.
-type countingVisitor struct {
-	seen map[string]int
+// spanCountingVisitor counts the Span nodes it is handed.
+type spanCountingVisitor struct {
+	spans int
 }
 
-func (c *countingVisitor) Visit(node ast.Node) bool {
-	if c.seen == nil {
-		c.seen = map[string]int{}
-	}
-	switch node.(type) {
-	case *ast.Span:
-		c.seen["Span"]++
-	case *ast.Annotation:
-		c.seen["Annotation"]++
+func (c *spanCountingVisitor) Visit(node ast.Node) bool {
+	if _, ok := node.(*ast.Span); ok {
+		c.spans++
 	}
 	return true
 }
@@ -121,9 +115,9 @@ func (c *countingVisitor) Visit(node ast.Node) bool {
 // reference genericVisit which recurses into the `span` property.
 func TestWalkVisitsSpans(t *testing.T) {
 	res := syntax.Parse("msg = hi { $x }\n")
-	v := &countingVisitor{}
+	v := &spanCountingVisitor{}
 	syntax.Walk(v, res)
-	assert.Greater(t, v.seen["Span"], 0, "Walk must visit at least one *ast.Span")
+	assert.Greater(t, v.spans, 0, "Walk must visit at least one *ast.Span")
 }
 
 // identityTransformer returns every node unchanged, also recording whether it
