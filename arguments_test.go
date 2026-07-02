@@ -114,3 +114,22 @@ func TestCustomArgumentType(t *testing.T) {
 	assert.Equal(t, "CUSTOM", got, "nested")
 	assert.Empty(t, errs)
 }
+
+// localeValue is a custom Value that renders via scope.Locale(), the one method
+// a Value.Format implementation can reach on the scope.
+type localeValue struct{}
+
+func (localeValue) Format(scope *fluent.Scope) string {
+	if loc := scope.Locale(); loc != "" {
+		return loc
+	}
+	return "no-locale"
+}
+
+// TestCustomValueNilScope pins the Value.Format contract: an implementation that
+// obeys the doc and calls scope.Locale() must not panic on a nil scope.
+func TestCustomValueNilScope(t *testing.T) {
+	assert.NotPanics(t, func() {
+		assert.Equal(t, "no-locale", localeValue{}.Format(nil))
+	})
+}
