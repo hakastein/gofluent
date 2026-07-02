@@ -19,6 +19,7 @@ type parserStream struct {
 	units      []uint16
 	index      int
 	peekOffset int
+	depth      int
 }
 
 func newParserStream(source string) *parserStream {
