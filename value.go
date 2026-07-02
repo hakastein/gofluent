@@ -63,15 +63,28 @@ func NewNumber(value float64, opts NumberOptions) *Number {
 
 // Format renders the number using the bundle's NumberFormatter. A deferred
 // option error is reported via the scope and falls back to the plain
-// rendering, as does formatting without a scope.
+// rendering, as does formatting without a scope or a panic in the formatter.
 func (n *Number) Format(scope *Scope) string {
 	if scope == nil || n.optErr != nil {
-		if scope != nil {
-			scope.reportError(n.optErr)
-		}
+		n.reportOptErr(scope)
 		return strconv.FormatFloat(n.Value, 'f', -1, 64)
 	}
-	return scope.bundle.numberFormatter.FormatNumber(scope.bundle.locale, n.Value, n.Options)
+	return guardExtension(scope, func() string {
+		return strconv.FormatFloat(n.Value, 'f', -1, 64)
+	}, func() string {
+		return scope.bundle.numberFormatter.FormatNumber(scope.bundle.locale, n.Value, n.Options)
+	})
+}
+
+// reportOptErr reports the deferred option error once and clears it, so a
+// Number used both as a selector and formatted does not double-report. Without
+// a scope there is nowhere to report, and the error is left intact.
+func (n *Number) reportOptErr(scope *Scope) {
+	if n.optErr == nil || scope == nil {
+		return
+	}
+	scope.reportError(n.optErr)
+	n.optErr = nil
 }
 
 // DateTime is the Value for a date/time (FluentDateTime in fluent.js): a
@@ -92,10 +105,16 @@ func (d *DateTime) toNumber() float64 {
 	return float64(d.Time.UnixMilli())
 }
 
-// Format renders the datetime using the bundle's DateTimeFormatter.
+// Format renders the datetime using the bundle's DateTimeFormatter. A panic in
+// the injected formatter falls back to the default CLDR rendering; without a
+// scope the default is used directly.
 func (d *DateTime) Format(scope *Scope) string {
-	if scope != nil {
-		return scope.bundle.dateTimeFormatter.FormatDateTime(scope.bundle.locale, d.Time, d.Options)
+	if scope == nil {
+		return cldrDateTimeFormatter{}.FormatDateTime("", d.Time, d.Options)
 	}
-	return cldrDateTimeFormatter{}.FormatDateTime("", d.Time, d.Options)
+	return guardExtension(scope, func() string {
+		return cldrDateTimeFormatter{}.FormatDateTime(scope.bundle.locale, d.Time, d.Options)
+	}, func() string {
+		return scope.bundle.dateTimeFormatter.FormatDateTime(scope.bundle.locale, d.Time, d.Options)
+	})
 }

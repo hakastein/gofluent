@@ -248,8 +248,14 @@ func (b *Bundle) FormatPattern(pattern Pattern, args map[string]any) (result str
 		return NewNone("").Format(scope), scope.errs
 	}
 	// Pattern is sealed; after the textPattern and nil checks only
-	// complexPattern remains.
-	return resolveComplexPattern(scope, pattern.(complexPattern)).Format(scope), scope.errs
+	// complexPattern remains. Guard the assertion anyway so an unforeseen
+	// implementation degrades to the fallback instead of panicking.
+	cp, ok := pattern.(complexPattern)
+	if !ok {
+		scope.reportError(newTypeError("Cannot format value"))
+		return NewNone("").Format(scope), scope.errs
+	}
+	return resolveComplexPattern(scope, cp).Format(scope), scope.errs
 }
 
 // coerceArgs converts raw Go argument values into Fluent Values.

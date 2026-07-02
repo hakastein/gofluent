@@ -2,6 +2,7 @@ package fluent
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,18 @@ func optBool(v Value) (bool, bool) {
 	return false, false
 }
 
+// sortedKeys returns the option names in a stable order, so that when several
+// options are invalid the first reported error does not depend on Go's random
+// map iteration order.
+func sortedKeys(opts map[string]Value) []string {
+	names := make([]string, 0, len(opts))
+	for name := range opts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // numberOptionsFrom merges the NUMBER_ALLOWED named options into a
 // NumberOptions, starting from a base set of options. Options outside the
 // fluent.js allowlist (style, currency, unit, ...) are ignored. An invalid
@@ -74,7 +87,8 @@ func numberOptionsFrom(base NumberOptions, opts map[string]Value) (NumberOptions
 		return nil
 	}
 	var err error
-	for name, v := range opts {
+	for _, name := range sortedKeys(opts) {
+		v := opts[name]
 		switch name {
 		case "currencyDisplay":
 			if s, ok := optString(v); ok {

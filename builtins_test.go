@@ -353,3 +353,118 @@ func TestUnknownFunction(t *testing.T) {
 	require.Len(t, errs, 1, "expected a single reference error")
 	require.ErrorIs(t, errs[0], fluent.ErrReference)
 }
+
+// A function returning (nil, nil) is a bad outcome, not a valid value: it must
+// route through the fault-tolerant path (rendering {FUNC()} with a type error)
+// instead of crashing FormatPattern with a nil-interface Format call.
+func TestFunctionNilReturn(t *testing.T) {
+	nilFn := func(_ []fluent.Value, _ map[string]fluent.Value) (fluent.Value, error) {
+		return nil, nil
+	}
+
+	t.Run("placeable position", func(t *testing.T) {
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
+		b.AddFunction("NIL", nilFn)
+		b.AddResource(fluent.NewResource("foo = { NIL() }\n"))
+
+		var got string
+		var errs []error
+		require.NotPanics(t, func() {
+			got, errs = format(t, b, "foo", nil)
+		}, "a nil function result must not crash FormatPattern")
+		assert.Equal(t, "{NIL()}", got)
+		require.Len(t, errs, 1)
+		require.ErrorIs(t, errs[0], fluent.ErrType)
+	})
+
+	t.Run("selector position", func(t *testing.T) {
+		b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false))
+		b.AddFunction("NIL", nilFn)
+		b.AddResource(fluent.NewResource("foo = { NIL() ->\n    [a] A\n   *[b] B\n}\n"))
+
+		var got string
+		var errs []error
+		require.NotPanics(t, func() {
+			got, errs = format(t, b, "foo", nil)
+		})
+		assert.Equal(t, "B", got, "a nil selector falls back to the default variant")
+		require.Len(t, errs, 1)
+		require.ErrorIs(t, errs[0], fluent.ErrType)
+	})
+}
+
+// panicNumberFormatter / panicDateTimeFormatter / panicPluralRules are injected
+// extension points that panic with a non-runtime error value, exercising the
+// resolver's panic recovery for the pluggable formatters and plural rules.
+type panicNumberFormatter struct{}
+
+func (panicNumberFormatter) FormatNumber(string, float64, fluent.NumberOptions) string {
+	panic(errors.New("number formatter boom"))
+}
+
+type panicDateTimeFormatter struct{}
+
+func (panicDateTimeFormatter) FormatDateTime(string, time.Time, fluent.DateTimeOptions) string {
+	panic(errors.New("datetime formatter boom"))
+}
+
+type panicPluralRules struct{}
+
+func (panicPluralRules) Cardinal(string, float64, fluent.NumberOptions) string {
+	panic(errors.New("cardinal boom"))
+}
+func (panicPluralRules) Ordinal(string, float64, fluent.NumberOptions) string {
+	panic(errors.New("ordinal boom"))
+}
+
+func TestPanickingNumberFormatterRecovered(t *testing.T) {
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+		fluent.WithNumberFormatter(panicNumberFormatter{}))
+	b.AddResource(fluent.NewResource("n = { $arg }\n"))
+
+	var got string
+	var errs []error
+	require.NotPanics(t, func() {
+		got, errs = format(t, b, "n", map[string]any{"arg": 1234})
+	}, "a panicking number formatter must not escape FormatPattern")
+	assert.Equal(t, "1234", got, "falls back to the plain numeric rendering")
+	require.Len(t, errs, 1)
+}
+
+func TestPanickingDateTimeFormatterRecovered(t *testing.T) {
+	src := "d = { $arg }\n"
+	arg := time.Date(2016, 9, 29, 0, 0, 0, 0, time.UTC)
+
+	// The fallback is the default CLDR rendering at the bundle's locale.
+	def := newTestBundle(t, src)
+	want, _ := format(t, def, "d", map[string]any{"arg": arg})
+
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false),
+		fluent.WithDateTimeFormatter(panicDateTimeFormatter{}))
+	b.AddResource(fluent.NewResource(src))
+
+	var got string
+	var errs []error
+	require.NotPanics(t, func() {
+		got, errs = format(t, b, "d", map[string]any{"arg": arg})
+	}, "a panicking datetime formatter must not escape FormatPattern")
+	assert.Equal(t, want, got, "falls back to the default datetime rendering")
+	require.Len(t, errs, 1)
+}
+
+// numberOptionsFrom must validate options in a deterministic order so that when
+// several options are invalid, the reported error is stable across runs (Go
+// randomizes map iteration order).
+func TestNumberBuiltinDeterministicOptionError(t *testing.T) {
+	b := newTestBundle(t, "n = { NUMBER($arg, minimumFractionDigits: 999, maximumFractionDigits: 888) }\n")
+
+	_, errs := format(t, b, "n", map[string]any{"arg": 1234})
+	require.Len(t, errs, 1)
+	want := errs[0].Error()
+
+	for i := 0; i < 200; i++ {
+		_, errs := format(t, b, "n", map[string]any{"arg": 1234})
+		require.Len(t, errs, 1)
+		require.Equalf(t, want, errs[0].Error(), "reported option error must be deterministic (iteration %d)", i)
+	}
+}

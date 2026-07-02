@@ -143,3 +143,33 @@ func TestWithPluralRulesOrdinalDispatch(t *testing.T) {
 	assert.Equal(t, "B", got, "cardinal numbers consult the override's Cardinal ruleset")
 	assert.Empty(t, errs)
 }
+
+// A panic inside an injected plural ruleset must be recovered like a function
+// panic: selection falls through to the default variant and the error is
+// collected instead of escaping FormatPattern.
+func TestPanickingPluralRulesRecovered(t *testing.T) {
+	src := "sel = { $n ->\n    [one] A\n   *[other] B\n}\n"
+	b := fluent.NewBundle("en-US", fluent.WithUseIsolating(false), fluent.WithPluralRules(panicPluralRules{}))
+	b.AddResource(fluent.NewResource(src))
+
+	var got string
+	var errs []error
+	require.NotPanics(t, func() {
+		got, errs = format(t, b, "sel", map[string]any{"n": 1})
+	}, "a panicking plural ruleset must not escape FormatPattern")
+	assert.Equal(t, "B", got, "selection falls through to the default variant")
+	require.NotEmpty(t, errs, "the panic is collected as an error")
+}
+
+// A NUMBER() selector carrying a deferred option error must surface that error
+// even though a selector is never formatted: matching still proceeds on the raw
+// value, but the RangeError is reported exactly once.
+func TestSelectorOptionErrorReported(t *testing.T) {
+	src := "sel = { NUMBER($n, minimumFractionDigits: 999) ->\n    [1] ONE\n   *[other] OTHER\n}\n"
+	b := newTestBundle(t, src)
+
+	got, errs := format(t, b, "sel", map[string]any{"n": 1})
+	assert.Equal(t, "ONE", got, "selection still matches on the raw value")
+	require.Len(t, errs, 1, "the deferred option error surfaces in selector position")
+	require.ErrorIs(t, errs[0], fluent.ErrRange)
+}
