@@ -11,6 +11,7 @@ package localization
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	fluent "github.com/hakastein/gofluent"
@@ -24,24 +25,19 @@ type Localization struct {
 }
 
 // ResourceLoader loads the FTL source for a (locale, resourceID) pair. It
-// returns an error if the resource cannot be found or read; missing resources
-// are tolerated (the resulting bundle simply lacks those messages).
+// returns an error if the resource cannot be found or read.
 type ResourceLoader func(locale, resourceID string) (string, error)
 
 // New builds a Localization from already-constructed bundles, in priority order
 // (highest-priority locale first). Callers retain ownership of the input slice.
 func New(bundles []*fluent.Bundle) *Localization {
-	cp := make([]*fluent.Bundle, len(bundles))
-	copy(cp, bundles)
-	return &Localization{bundles: cp}
+	return &Localization{bundles: slices.Clone(bundles)}
 }
 
 // Bundles returns the localization's bundles in priority order. The returned
 // slice is a copy.
 func (l *Localization) Bundles() []*fluent.Bundle {
-	cp := make([]*fluent.Bundle, len(l.bundles))
-	copy(cp, l.bundles)
-	return cp
+	return slices.Clone(l.bundles)
 }
 
 // Config configures NewFromLocales.

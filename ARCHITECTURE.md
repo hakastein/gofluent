@@ -21,9 +21,9 @@ are not obvious from the code. For build, test, and contribution mechanics, see
    therefore fluent.js) out of the box. To do so it depends directly on
    `github.com/hakastein/gocldr`; the `langneg` subpackage remains
    standalone (stdlib-only), and testify is a test-only dependency.
-3. **Fault tolerance.** The resolver never panics; it returns the collected
-   errors and renders fluent.js-style placeholders so a best-effort string is
-   always produced.
+3. **Fault tolerance.** The resolver returns the collected errors and renders
+   fluent.js-style placeholders so a best-effort string is always produced;
+   only genuine runtime faults propagate (see the panic policy below).
 4. **Pluggable formatting.** The core formats against small interfaces
    (`PluralRules`, `NumberFormatter`, `DateTimeFormatter`). The default
    implementations are CLDR-backed — they adapt the external `gocldr` module

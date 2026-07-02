@@ -125,7 +125,7 @@ CLDR-backed formatting is the default, so a bare `fluent.NewBundle("en")`
 already formats numbers, dates, and plurals locale-aware. The locale *data* that
 drives real number/date rendering is still opt-in — see "Locale data" below.
 
-The resolver is **fault-tolerant**: `FormatPattern` never panics. It returns a
+The resolver is **fault-tolerant**: `FormatPattern` always returns a
 best-effort string together with the errors it encountered — missing references
 and other problems render as fluent.js-style placeholders (for example
 `{$name}`) and come back classified by the `ErrReference` / `ErrRange` /

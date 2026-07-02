@@ -6,8 +6,6 @@ import (
 	"github.com/hakastein/gofluent/syntax/ast"
 )
 
-const hasEntries = 1
-
 // Serializer renders an AST back to canonical Fluent source. It is a port of
 // the @fluent/syntax FluentSerializer.
 type Serializer struct {
@@ -33,46 +31,46 @@ func NewSerializer(opts ...SerializerOption) *Serializer {
 
 // Serialize renders a whole resource.
 func (s *Serializer) Serialize(resource *ast.Resource) string {
-	state := 0
+	hasEntries := false
 	var parts strings.Builder
 
 	for _, entry := range resource.Body {
 		if _, isJunk := entry.(*ast.Junk); !isJunk || s.withJunk {
-			parts.WriteString(s.serializeEntry(entry, state))
-			state |= hasEntries
+			parts.WriteString(s.serializeEntry(entry, hasEntries))
+			hasEntries = true
 		}
 	}
 
 	return parts.String()
 }
 
-// serializeEntry renders a single entry with the given state bits.
-func (s *Serializer) serializeEntry(entry ast.Entry, state int) string {
+func (s *Serializer) serializeEntry(entry ast.Entry, hasEntries bool) string {
 	switch e := entry.(type) {
 	case *ast.Message:
 		return serializeMessage(e)
 	case *ast.Term:
 		return serializeTerm(e)
 	case *ast.Comment:
-		if state&hasEntries != 0 {
-			return "\n" + serializeComment(e.Content, "#") + "\n"
-		}
-		return serializeComment(e.Content, "#") + "\n"
+		return serializeStandaloneComment(e.Content, "#", hasEntries)
 	case *ast.GroupComment:
-		if state&hasEntries != 0 {
-			return "\n" + serializeComment(e.Content, "##") + "\n"
-		}
-		return serializeComment(e.Content, "##") + "\n"
+		return serializeStandaloneComment(e.Content, "##", hasEntries)
 	case *ast.ResourceComment:
-		if state&hasEntries != 0 {
-			return "\n" + serializeComment(e.Content, "###") + "\n"
-		}
-		return serializeComment(e.Content, "###") + "\n"
+		return serializeStandaloneComment(e.Content, "###", hasEntries)
 	case *ast.Junk:
-		return serializeJunk(e)
+		return e.Content
 	default:
 		panic("unknown entry type")
 	}
+}
+
+// serializeStandaloneComment renders a standalone comment entry; every entry
+// after the first is preceded by a separating blank line.
+func serializeStandaloneComment(content, prefix string, hasEntries bool) string {
+	out := serializeComment(content, prefix) + "\n"
+	if hasEntries {
+		return "\n" + out
+	}
+	return out
 }
 
 func indentExceptFirstLine(content string) string {
@@ -101,20 +99,19 @@ func shouldStartOnNewLine(pattern *ast.Pattern) bool {
 			break
 		}
 	}
-
-	if isMultiline {
-		if len(pattern.Elements) > 0 {
-			if first, ok := pattern.Elements[0].(*ast.TextElement); ok && len(first.Value) > 0 {
-				switch first.Value[0] {
-				case '[', '.', '*':
-					return false
-				}
-			}
-		}
-		return true
+	if !isMultiline {
+		return false
 	}
 
-	return false
+	// A leading [, . or * on the first line would be confused with a variant
+	// key, an attribute, or the default variant marker.
+	if first, ok := pattern.Elements[0].(*ast.TextElement); ok && len(first.Value) > 0 {
+		switch first.Value[0] {
+		case '[', '.', '*':
+			return false
+		}
+	}
+	return true
 }
 
 func serializeComment(content, prefix string) string {
@@ -127,10 +124,6 @@ func serializeComment(content, prefix string) string {
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
-}
-
-func serializeJunk(junk *ast.Junk) string {
-	return junk.Content
 }
 
 func serializeMessage(message *ast.Message) string {
@@ -216,7 +209,6 @@ func serializePlaceable(placeable *ast.Placeable) string {
 	}
 }
 
-// serializeExpression renders a single expression to Fluent source.
 func serializeExpression(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.StringLiteral:
@@ -291,7 +283,6 @@ func serializeNamedArgument(arg *ast.NamedArgument) string {
 	return arg.Name.Name + ": " + serializeExpression(arg.Value)
 }
 
-// serializeVariantKey renders a variant key (Identifier or NumberLiteral).
 func serializeVariantKey(key ast.VariantKey) string {
 	switch k := key.(type) {
 	case *ast.Identifier:

@@ -139,10 +139,8 @@ func firstDiff(path string, got, want any) string {
 
 // assertDeepEqualJSON compares two decoded JSON trees, failing with a readable
 // diff (first differing path) on mismatch.
-func assertDeepEqualJSON(t *testing.T, name string, gotBytes, wantBytes []byte) {
+func assertDeepEqualJSON(t *testing.T, name string, got, want any) {
 	t.Helper()
-	got := toAny(t, "got", gotBytes)
-	want := toAny(t, "want", wantBytes)
 	assert.Equalf(t, want, got, "AST mismatch for %s\nfirst diff at %s",
 		name, firstDiff("$", got, want))
 }
@@ -159,19 +157,15 @@ func TestStructureFixtures(t *testing.T) {
 			res := syntax.Parse(ftl) // spans ON by default
 			got, err := ast.Marshal(res, true)
 			require.NoError(t, err, "marshal")
-			assertDeepEqualJSON(t, name, got, expected)
+			assertDeepEqualJSON(t, name, toAny(t, "got", got), toAny(t, "want", expected))
 		})
 	}
 }
 
 // blankJunkAnnotations mirrors the transform in reference_test.js: every Junk
-// entry in the resource body has its `annotations` array replaced with []. The
-// reference parser does not populate Junk annotations, so they are ignored.
-//
-// The JS suite applies this only to the parsed side because the fixtures already
-// carry empty annotation arrays; applying it to both sides is equivalent and
-// guards against the (unlikely) case of a fixture being regenerated with
-// populated annotations.
+// entry in the parsed body has its `annotations` array replaced with []. The
+// reference parser does not populate Junk annotations, so they are ignored;
+// the fixtures already carry empty arrays.
 func blankJunkAnnotations(v any) {
 	root, ok := v.(map[string]any)
 	if !ok {
@@ -193,7 +187,8 @@ func blankJunkAnnotations(v any) {
 }
 
 // TestReferenceFixtures mirrors reference_test.js: parse with spans OFF, blank
-// out Junk annotations on both sides, honor the skip-list, then deep-compare.
+// out Junk annotations on the parsed side, honor the skip-list, then
+// deep-compare.
 func TestReferenceFixtures(t *testing.T) {
 	names := ftlFixtures(t, referenceDir)
 	require.NotEmptyf(t, names, "no reference fixtures found in %s", referenceDir)
@@ -210,12 +205,8 @@ func TestReferenceFixtures(t *testing.T) {
 			require.NoError(t, err, "marshal")
 
 			got := toAny(t, "got", gotBytes)
-			want := toAny(t, "want", expected)
 			blankJunkAnnotations(got)
-			blankJunkAnnotations(want)
-
-			assert.Equalf(t, want, got, "AST mismatch for %s\nfirst diff at %s",
-				name, firstDiff("$", got, want))
+			assertDeepEqualJSON(t, name, got, toAny(t, "want", expected))
 		})
 	}
 }

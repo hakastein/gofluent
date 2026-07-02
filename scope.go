@@ -16,8 +16,7 @@ type Scope struct {
 	dirty map[*patternElement]bool
 	// params is the dict of parameters passed to a termReference (nil when not
 	// inside a term).
-	params    map[string]Value
-	paramsSet bool
+	params map[string]Value
 	// placeables counts placeables resolved so far, to stop the Billion
 	// Laughs and Quadratic Blowup attacks.
 	placeables int

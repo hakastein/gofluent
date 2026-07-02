@@ -9,10 +9,7 @@ import (
 
 // Ported from isolating_test.js.
 
-// fsi / pdi are the Unicode bidi isolation marks the bundle wraps placeables in
-// when useIsolating is enabled (FSI = U+2068, PDI = U+2069). Declared locally so
-// these tests assert against the public rendering without reaching into the
-// package's unexported constants.
+// Unicode bidi isolation marks (FSI U+2068, PDI U+2069).
 const (
 	fsi = "⁨"
 	pdi = "⁩"

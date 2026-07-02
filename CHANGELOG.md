@@ -9,6 +9,43 @@ While the project is pre-1.0, the public API may change between minor versions.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
+A fluent.js-parity and cleanup pass: backend and frontend rendering the same
+FTL file must produce identical output.
+
+### Fixed — fluent.js parity
+
+- **`NUMBER()` and `DATETIME()` honor the fluent.js FTL option allowlists.**
+  `style`, `currency` and `unit` (NUMBER) and `timeZone`, `calendar` and
+  `numberingSystem` (DATETIME) are now ignored when set from FTL, matching
+  fluent.js: a translation cannot change what kind of quantity a value is.
+  Set them on a `Number`/`DateTime` argument built in code instead.
+- Integer options are validated against their Intl ranges (fraction digits
+  0–100, integer/significant digits 1–21, `fractionalSecondDigits` 1–3);
+  out-of-range values report a range error and fall back, like
+  `Intl.NumberFormat`/`Intl.DateTimeFormat` throwing.
+- `DATETIME()` rejects NaN, infinities, and timestamps outside ECMA-262's
+  ±8.64e15 ms range with a range error instead of rendering an
+  implementation-defined string.
+- The runtime parser accepts the same whitespace inside placeables as
+  fluent.js (JavaScript `\s`: tabs, NBSP, ...), not just spaces and newlines.
+- `langneg` no longer lower-cases the script tail and variant of a locale id,
+  matching @fluent/langneg's case handling (affects negotiation winners when
+  available locales differ only in variant case).
+- `syntax`: comments containing astral characters (emoji) survive parsing
+  intact; `\u`/`\U` escapes with a sign (e.g. `\u+123`) stay verbatim; the
+  E0025 diagnostic at EOF reports `\undefined` like fluent.js.
+
+### Removed
+
+- `fluent.WithLocales` — the fallback list was stored but never read; real
+  fallback lives in the `localization` package.
+- `None.Fallback()` — the fallback string is internal to rendering.
+- `langneg.Locale`, `langneg.NewLocale` — internal parsing types;
+  `Strategy.String()` is also gone.
+- `ast.Resource.MarshalJSON` — use `ast.Marshal`.
+
 ## [0.4.0] - 2026-06-10
 
 A breaking API cleanup toward an idiomatic-Go 1.0 surface. No formatting or
@@ -135,7 +172,8 @@ Initial public release. Requires Go 1.26 or newer.
   overview, code of conduct, security policy, and a CI pipeline running vet,
   build, race tests, `gofmt`, `staticcheck`, and `govulncheck`.
 
-[Unreleased]: https://github.com/hakastein/gofluent/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hakastein/gofluent/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hakastein/gofluent/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hakastein/gofluent/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hakastein/gofluent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hakastein/gofluent/compare/v0.1.0...v0.2.0

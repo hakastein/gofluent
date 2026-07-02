@@ -2,7 +2,7 @@ package langneg
 
 import "strings"
 
-// The negotiation algorithm is based on BCP-4647 3.3.2 Extended Filtering with
+// The negotiation algorithm is based on RFC 4647 3.3.2 Extended Filtering with
 // three Fluent-specific modifications:
 //
 //  1. Available locales are treated as ranges, so a more specific request can
@@ -18,7 +18,7 @@ import "strings"
 // JS Map the port mirrors does.
 type orderedLocale struct {
 	key    string
-	locale *Locale
+	locale *locale
 }
 
 // filterMatches negotiates requestedLocales against availableLocales using the
@@ -28,17 +28,10 @@ func filterMatches(requestedLocales, availableLocales []string, strategy Strateg
 	var supported []string
 	supportedSet := make(map[string]bool)
 
-	addSupported := func(key string) {
-		if !supportedSet[key] {
-			supportedSet[key] = true
-			supported = append(supported, key)
-		}
-	}
-
 	// Parse the available locales, preserving order and dropping malformed ids.
 	availableMap := make([]orderedLocale, 0, len(availableLocales))
 	for _, locale := range availableLocales {
-		if parsed := NewLocale(locale); parsed.Wellformed {
+		if parsed := newLocale(locale); parsed.wellformed {
 			availableMap = append(availableMap, orderedLocale{key: locale, locale: parsed})
 		}
 	}
@@ -46,7 +39,7 @@ func filterMatches(requestedLocales, availableLocales []string, strategy Strateg
 outer:
 	for _, reqLocStr := range requestedLocales {
 		reqLocStrLC := strings.ToLower(reqLocStr)
-		requestedLocale := NewLocale(reqLocStrLC)
+		requestedLocale := newLocale(reqLocStrLC)
 
 		if requestedLocale.Language == "" {
 			continue
@@ -62,7 +55,8 @@ outer:
 			kept := availableMap[:0]
 			for _, entry := range availableMap {
 				if (strategy == Filtering || !matched) && !supportedSet[entry.key] && pred(entry) {
-					addSupported(entry.key)
+					supportedSet[entry.key] = true
+					supported = append(supported, entry.key)
 					matched = true
 					continue
 				}
@@ -82,67 +76,77 @@ outer:
 			}
 		}
 
-		// 1) Exact match. Example: `en-US` === `en-US`.
-		if advance, stop := runPass(func(e orderedLocale) bool {
+		// The predicates capture requestedLocale, which is mutated between
+		// passes (likely subtags, cleared variant/region).
+		exact := func(e orderedLocale) bool {
 			return reqLocStrLC == strings.ToLower(e.key)
-		}); stop {
+		}
+		availableAsRange := func(e orderedLocale) bool {
+			return e.locale.matches(requestedLocale, true, false)
+		}
+		bothAsRanges := func(e orderedLocale) bool {
+			return e.locale.matches(requestedLocale, true, true)
+		}
+
+		// 1) Exact match. Example: `en-US` === `en-US`.
+		advance, stop := runPass(exact)
+		if stop {
 			return supported
-		} else if advance {
+		}
+		if advance {
 			continue outer
 		}
 
 		// 2) Match against the available range (available treated as wildcard).
 		// Example: ['en-US'] * ['en'] = ['en'].
-		if advance, stop := runPass(func(e orderedLocale) bool {
-			return e.locale.matches(requestedLocale, true, false)
-		}); stop {
+		advance, stop = runPass(availableAsRange)
+		if stop {
 			return supported
-		} else if advance {
+		}
+		if advance {
 			continue outer
 		}
 
 		// 3) Maximal (likely-subtags) version of the request.
 		// Example: ['en'] * ['en-GB','en-US'] = ['en-US'].
 		if requestedLocale.addLikelySubtags() {
-			if advance, stop := runPass(func(e orderedLocale) bool {
-				return e.locale.matches(requestedLocale, true, false)
-			}); stop {
+			advance, stop = runPass(availableAsRange)
+			if stop {
 				return supported
-			} else if advance {
+			}
+			if advance {
 				continue outer
 			}
 		}
 
 		// 4) Different variant for the same locale id.
 		// Example: ['en-US-mac'] * ['en-US-win'] = ['en-US-win'].
-		requestedLocale.clearVariant()
-		if advance, stop := runPass(func(e orderedLocale) bool {
-			return e.locale.matches(requestedLocale, true, true)
-		}); stop {
+		requestedLocale.Variant = ""
+		advance, stop = runPass(bothAsRanges)
+		if stop {
 			return supported
-		} else if advance {
+		}
+		if advance {
 			continue outer
 		}
 
 		// 5) Likely subtag without region.
 		// Example: ['zh-Hant-HK'] * ['zh-TW','zh-CN'] = ['zh-TW'].
-		requestedLocale.clearRegion()
+		requestedLocale.Region = ""
 		if requestedLocale.addLikelySubtags() {
-			if advance, stop := runPass(func(e orderedLocale) bool {
-				return e.locale.matches(requestedLocale, true, false)
-			}); stop {
+			advance, stop = runPass(availableAsRange)
+			if stop {
 				return supported
-			} else if advance {
+			}
+			if advance {
 				continue outer
 			}
 		}
 
 		// 6) Different region for the same locale id.
 		// Example: ['en-US'] * ['en-AU'] = ['en-AU'].
-		requestedLocale.clearRegion()
-		if _, stop := runPass(func(e orderedLocale) bool {
-			return e.locale.matches(requestedLocale, true, true)
-		}); stop {
+		requestedLocale.Region = ""
+		if _, stop = runPass(bothAsRanges); stop {
 			return supported
 		}
 	}

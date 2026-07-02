@@ -20,17 +20,14 @@ func unescapeStringLiteral(s string) string {
 		case '"':
 			out = append(out, '"')
 			i++
-		case 'u':
-			if r, ok := parseHexEscape(rs, i+2, 4); ok {
-				out = append(out, r)
-				i += 2 + 4
-			} else {
-				out = append(out, rs[i])
+		case 'u', 'U':
+			n := 4
+			if rs[i+1] == 'U' {
+				n = 6
 			}
-		case 'U':
-			if r, ok := parseHexEscape(rs, i+2, 6); ok {
+			if r, ok := parseHexEscape(rs, i+2, n); ok {
 				out = append(out, r)
-				i += 2 + 6
+				i += 2 + n
 			} else {
 				out = append(out, rs[i])
 			}
@@ -50,13 +47,19 @@ func parseHexEscape(rs []rune, start, n int) (rune, bool) {
 	if start+n > len(rs) {
 		return 0, false
 	}
+	for _, r := range rs[start : start+n] {
+		// strconv.ParseInt would also accept a leading sign; only hex digits
+		// form a valid escape.
+		switch {
+		case '0' <= r && r <= '9', 'a' <= r && r <= 'f', 'A' <= r && r <= 'F':
+		default:
+			return 0, false
+		}
+	}
 	cp, err := strconv.ParseInt(string(rs[start:start+n]), 16, 32)
 	if err != nil {
 		return 0, false
 	}
-	// Reject surrogates (U+D800..U+DFFF) and anything above the Unicode maximum;
-	// either way yield the replacement character explicitly rather than relying
-	// on string([]rune{...}) to coerce an invalid code point to U+FFFD.
 	if (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF {
 		return '�', true
 	}

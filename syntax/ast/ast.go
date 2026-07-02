@@ -24,8 +24,8 @@ type Node interface {
 }
 
 // SyntaxNode is the interface for nodes which carry their own Span via the
-// Spanned embed. Every node in this package satisfies it except *Span and
-// *Annotation, which implement only Node.
+// Spanned embed. Every node in this package satisfies it except *Span, which
+// implements only Node.
 type SyntaxNode interface {
 	Node
 	GetSpan() *Span
@@ -103,7 +103,7 @@ type Resource struct {
 
 func (*Resource) nodeTypeName() string { return "Resource" }
 
-func (r *Resource) jsonFields(ctx *marshalCtx) []jsonField {
+func (r *Resource) jsonFields() []jsonField {
 	return []jsonField{{"body", r.Body}}
 }
 
@@ -124,11 +124,11 @@ type Message struct {
 func (*Message) nodeTypeName() string { return "Message" }
 func (*Message) isEntry()             {}
 
-func (m *Message) jsonFields(ctx *marshalCtx) []jsonField {
+func (m *Message) jsonFields() []jsonField {
 	return []jsonField{
 		{"id", m.ID},
 		{"value", m.Value},
-		{"attributes", nonNil(m.Attributes)},
+		{"attributes", m.Attributes},
 		{"comment", m.Comment},
 	}
 }
@@ -150,11 +150,11 @@ type Term struct {
 func (*Term) nodeTypeName() string { return "Term" }
 func (*Term) isEntry()             {}
 
-func (t *Term) jsonFields(ctx *marshalCtx) []jsonField {
+func (t *Term) jsonFields() []jsonField {
 	return []jsonField{
 		{"id", t.ID},
 		{"value", t.Value},
-		{"attributes", nonNil(t.Attributes)},
+		{"attributes", t.Attributes},
 		{"comment", t.Comment},
 	}
 }
@@ -172,8 +172,8 @@ type Pattern struct {
 
 func (*Pattern) nodeTypeName() string { return "Pattern" }
 
-func (p *Pattern) jsonFields(ctx *marshalCtx) []jsonField {
-	return []jsonField{{"elements", nonNil(p.Elements)}}
+func (p *Pattern) jsonFields() []jsonField {
+	return []jsonField{{"elements", p.Elements}}
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ type TextElement struct {
 func (*TextElement) nodeTypeName() string { return "TextElement" }
 func (*TextElement) isPatternElement()    {}
 
-func (t *TextElement) jsonFields(ctx *marshalCtx) []jsonField {
+func (t *TextElement) jsonFields() []jsonField {
 	return []jsonField{{"value", t.Value}}
 }
 
@@ -208,7 +208,7 @@ func (*Placeable) isPatternElement()    {}
 func (*Placeable) isExpression()        {}
 func (*Placeable) isInlineExpression()  {}
 
-func (p *Placeable) jsonFields(ctx *marshalCtx) []jsonField {
+func (p *Placeable) jsonFields() []jsonField {
 	return []jsonField{{"expression", p.Expression}}
 }
 
@@ -228,7 +228,7 @@ func (*StringLiteral) isExpression()        {}
 func (*StringLiteral) isInlineExpression()  {}
 func (*StringLiteral) isLiteral()           {}
 
-func (s *StringLiteral) jsonFields(ctx *marshalCtx) []jsonField {
+func (s *StringLiteral) jsonFields() []jsonField {
 	return []jsonField{{"value", s.Value}}
 }
 
@@ -250,7 +250,7 @@ func (*NumberLiteral) isInlineExpression()  {}
 func (*NumberLiteral) isLiteral()           {}
 func (*NumberLiteral) isVariantKey()        {}
 
-func (n *NumberLiteral) jsonFields(ctx *marshalCtx) []jsonField {
+func (n *NumberLiteral) jsonFields() []jsonField {
 	return []jsonField{{"value", n.Value}}
 }
 
@@ -279,7 +279,7 @@ func (*MessageReference) nodeTypeName() string { return "MessageReference" }
 func (*MessageReference) isExpression()        {}
 func (*MessageReference) isInlineExpression()  {}
 
-func (m *MessageReference) jsonFields(ctx *marshalCtx) []jsonField {
+func (m *MessageReference) jsonFields() []jsonField {
 	return []jsonField{
 		{"id", m.ID},
 		{"attribute", m.Attribute},
@@ -299,7 +299,7 @@ func (*TermReference) nodeTypeName() string { return "TermReference" }
 func (*TermReference) isExpression()        {}
 func (*TermReference) isInlineExpression()  {}
 
-func (t *TermReference) jsonFields(ctx *marshalCtx) []jsonField {
+func (t *TermReference) jsonFields() []jsonField {
 	return []jsonField{
 		{"id", t.ID},
 		{"attribute", t.Attribute},
@@ -317,7 +317,7 @@ func (*VariableReference) nodeTypeName() string { return "VariableReference" }
 func (*VariableReference) isExpression()        {}
 func (*VariableReference) isInlineExpression()  {}
 
-func (v *VariableReference) jsonFields(ctx *marshalCtx) []jsonField {
+func (v *VariableReference) jsonFields() []jsonField {
 	return []jsonField{{"id", v.ID}}
 }
 
@@ -332,7 +332,7 @@ func (*FunctionReference) nodeTypeName() string { return "FunctionReference" }
 func (*FunctionReference) isExpression()        {}
 func (*FunctionReference) isInlineExpression()  {}
 
-func (f *FunctionReference) jsonFields(ctx *marshalCtx) []jsonField {
+func (f *FunctionReference) jsonFields() []jsonField {
 	return []jsonField{
 		{"id", f.ID},
 		{"arguments", f.Arguments},
@@ -353,10 +353,10 @@ type SelectExpression struct {
 func (*SelectExpression) nodeTypeName() string { return "SelectExpression" }
 func (*SelectExpression) isExpression()        {}
 
-func (s *SelectExpression) jsonFields(ctx *marshalCtx) []jsonField {
+func (s *SelectExpression) jsonFields() []jsonField {
 	return []jsonField{
 		{"selector", s.Selector},
-		{"variants", nonNil(s.Variants)},
+		{"variants", s.Variants},
 	}
 }
 
@@ -373,10 +373,10 @@ type CallArguments struct {
 
 func (*CallArguments) nodeTypeName() string { return "CallArguments" }
 
-func (c *CallArguments) jsonFields(ctx *marshalCtx) []jsonField {
+func (c *CallArguments) jsonFields() []jsonField {
 	return []jsonField{
-		{"positional", nonNil(c.Positional)},
-		{"named", nonNil(c.Named)},
+		{"positional", c.Positional},
+		{"named", c.Named},
 	}
 }
 
@@ -393,7 +393,7 @@ type Attribute struct {
 
 func (*Attribute) nodeTypeName() string { return "Attribute" }
 
-func (a *Attribute) jsonFields(ctx *marshalCtx) []jsonField {
+func (a *Attribute) jsonFields() []jsonField {
 	return []jsonField{
 		{"id", a.ID},
 		{"value", a.Value},
@@ -414,7 +414,7 @@ type Variant struct {
 
 func (*Variant) nodeTypeName() string { return "Variant" }
 
-func (v *Variant) jsonFields(ctx *marshalCtx) []jsonField {
+func (v *Variant) jsonFields() []jsonField {
 	return []jsonField{
 		{"key", v.Key},
 		{"value", v.Value},
@@ -435,7 +435,7 @@ type NamedArgument struct {
 
 func (*NamedArgument) nodeTypeName() string { return "NamedArgument" }
 
-func (n *NamedArgument) jsonFields(ctx *marshalCtx) []jsonField {
+func (n *NamedArgument) jsonFields() []jsonField {
 	return []jsonField{
 		{"name", n.Name},
 		{"value", n.Value},
@@ -455,7 +455,7 @@ type Identifier struct {
 func (*Identifier) nodeTypeName() string { return "Identifier" }
 func (*Identifier) isVariantKey()        {}
 
-func (i *Identifier) jsonFields(ctx *marshalCtx) []jsonField {
+func (i *Identifier) jsonFields() []jsonField {
 	return []jsonField{{"name", i.Name}}
 }
 
@@ -473,7 +473,7 @@ func (*Comment) nodeTypeName() string { return "Comment" }
 func (*Comment) isEntry()             {}
 func (*Comment) isComment()           {}
 
-func (c *Comment) jsonFields(ctx *marshalCtx) []jsonField {
+func (c *Comment) jsonFields() []jsonField {
 	return []jsonField{{"content", c.Content}}
 }
 
@@ -487,7 +487,7 @@ func (*GroupComment) nodeTypeName() string { return "GroupComment" }
 func (*GroupComment) isEntry()             {}
 func (*GroupComment) isComment()           {}
 
-func (c *GroupComment) jsonFields(ctx *marshalCtx) []jsonField {
+func (c *GroupComment) jsonFields() []jsonField {
 	return []jsonField{{"content", c.Content}}
 }
 
@@ -501,7 +501,7 @@ func (*ResourceComment) nodeTypeName() string { return "ResourceComment" }
 func (*ResourceComment) isEntry()             {}
 func (*ResourceComment) isComment()           {}
 
-func (c *ResourceComment) jsonFields(ctx *marshalCtx) []jsonField {
+func (c *ResourceComment) jsonFields() []jsonField {
 	return []jsonField{{"content", c.Content}}
 }
 
@@ -525,9 +525,9 @@ func (j *Junk) AddAnnotation(a *Annotation) {
 	j.Annotations = append(j.Annotations, a)
 }
 
-func (j *Junk) jsonFields(ctx *marshalCtx) []jsonField {
+func (j *Junk) jsonFields() []jsonField {
 	return []jsonField{
-		{"annotations", nonNil(j.Annotations)},
+		{"annotations", j.Annotations},
 		{"content", j.Content},
 	}
 }
@@ -536,7 +536,9 @@ func (j *Junk) jsonFields(ctx *marshalCtx) []jsonField {
 // Span
 // ---------------------------------------------------------------------------
 
-// Span records the [Start, End) byte range a node covers in the source.
+// Span records the [Start, End) range a node covers in the source, measured in
+// UTF-16 code units (matching fluent.js); syntax.LineOffset and
+// syntax.ColumnOffset convert such offsets to line/column positions.
 type Span struct {
 	Start int
 	End   int
@@ -544,10 +546,7 @@ type Span struct {
 
 func (*Span) nodeTypeName() string { return "Span" }
 
-// GetSpan satisfies a partial SyntaxNode shape; a Span has no span of its own.
-func (*Span) GetSpan() *Span { return nil }
-
-func (s *Span) jsonFields(ctx *marshalCtx) []jsonField {
+func (s *Span) jsonFields() []jsonField {
 	return []jsonField{
 		{"start", s.Start},
 		{"end", s.End},
@@ -568,10 +567,10 @@ type Annotation struct {
 
 func (*Annotation) nodeTypeName() string { return "Annotation" }
 
-func (a *Annotation) jsonFields(ctx *marshalCtx) []jsonField {
+func (a *Annotation) jsonFields() []jsonField {
 	return []jsonField{
 		{"code", a.Code},
-		{"arguments", nonNil(a.Arguments)},
+		{"arguments", a.Arguments},
 		{"message", a.Message},
 	}
 }
@@ -580,22 +579,6 @@ func (a *Annotation) jsonFields(ctx *marshalCtx) []jsonField {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// nodeType returns the JSON "type" discriminator for a node.
-func nodeType(n jsonMarshaler) string {
-	if nn, ok := n.(interface{ nodeTypeName() string }); ok {
-		return nn.nodeTypeName()
-	}
-	return ""
-}
-
-// nodeSpan returns the span of a node if it carries one.
-func nodeSpan(n jsonMarshaler) *Span {
-	if sn, ok := n.(interface{ GetSpan() *Span }); ok {
-		return sn.GetSpan()
-	}
-	return nil
-}
-
 // isNilNode reports whether an interface holds a typed-nil node pointer.
 func isNilNode(v any) bool {
 	if v == nil {
@@ -603,12 +586,4 @@ func isNilNode(v any) bool {
 	}
 	rv := reflect.ValueOf(v)
 	return rv.Kind() == reflect.Pointer && rv.IsNil()
-}
-
-// nonNil ensures empty slices marshal as [] rather than null.
-func nonNil[T any](s []T) []T {
-	if s == nil {
-		return []T{}
-	}
-	return s
 }

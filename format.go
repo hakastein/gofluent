@@ -65,6 +65,5 @@ type DateTimeFormatter interface {
 	FormatDateTime(locale string, t time.Time, opts DateTimeOptions) string
 }
 
-// boolPtr / intPtr are small helpers for constructing optional fields.
 func boolPtr(b bool) *bool { return &b }
 func intPtr(i int) *int    { return &i }

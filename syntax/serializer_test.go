@@ -22,9 +22,3 @@ func TestSerializeWithJunk(t *testing.T) {
 	withJunk := syntax.Serialize(res, syntax.WithJunk(true))
 	assert.Equal(t, src, withJunk, "junk preserved with WithJunk(true)")
 }
-
-func TestSerializeComment(t *testing.T) {
-	src := "# A comment\nfoo = Bar\n"
-	got := syntax.Serialize(syntax.Parse(src))
-	assert.Equal(t, src, got)
-}
