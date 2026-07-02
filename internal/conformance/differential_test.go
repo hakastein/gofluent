@@ -68,11 +68,8 @@ func attributeDropReason(fixture, id, attr string) (string, bool) {
 // references, select expressions, number literals, nested placeables) so the
 // caller skips the pattern-level comparison for it.
 //
-// A string literal with no escape sequences renders to its raw value (which the
-// reference conformance suite already validates); a string literal that carries
-// an escape is treated as non-includable, so the comparison does not depend on
-// the syntax package's own unescaper. An unresolved variable reference renders
-// to the fluent.js fallback form {$name}.
+// A string literal renders to its unescaped value via StringLiteral.Parse. An
+// unresolved variable reference renders to the fluent.js fallback form {$name}.
 func referencePattern(p *ast.Pattern) (string, bool) {
 	if p == nil {
 		return "", false
@@ -98,10 +95,7 @@ func referencePattern(p *ast.Pattern) (string, bool) {
 func referencePlaceable(expr ast.Expression) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.StringLiteral:
-		if strings.ContainsRune(e.Value, '\\') {
-			return "", false
-		}
-		return e.Value, true
+		return e.Parse(), true
 	case *ast.VariableReference:
 		return "{$" + e.ID.Name + "}", true
 	default:
